@@ -172,11 +172,13 @@ local function inside(guiObj, pos)
 end
 
 local function isPress(input)
-    return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
+    return input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch
 end
 
 local function isMove(input)
-    return input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch
+    return input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch
 end
 
 local function protectedParent()
@@ -437,10 +439,21 @@ function Ducky:CreateWindow(opts)
         }),
     })
 
-    local tabList = create("Frame", {
-        Parent = main, BackgroundTransparency = 1,
+    -- Sidebar is a ScrollingFrame with a super-thin (2px) scrollbar.
+    -- AutomaticCanvasSize + ScrollingDirection.Y + touch drag = mobile support.
+    local tabList = create("ScrollingFrame", {
+        Parent = main, BackgroundTransparency = 1, BorderSizePixel = 0,
         Position = UDim2.fromOffset(0, 80), Size = UDim2.new(0, SIDEBAR_W, 1, -80),
-    }, { create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) }) })
+        ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Accent,
+        ScrollBarImageTransparency = 0.35,
+        ScrollingDirection = Enum.ScrollingDirection.Y,
+        CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        ScrollingEnabled = true, ElastifyBehavior = Enum.ElasticBehavior.WhenScrollable,
+        ClipsDescendants = true,
+    }, {
+        create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 2) }),
+        create("UIPadding", { PaddingTop = UDim.new(0, 0), PaddingBottom = UDim.new(0, 8) }),
+    })
 
     local pages = create("Frame", {
         Parent = main, BackgroundTransparency = 1,
@@ -1547,24 +1560,6 @@ function Ducky:CreateWindow(opts)
             show()
         end)
     end
-do
-        local dragArea = create("Frame", { Parent = main, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 14), ZIndex = 0, Active = true })
-        local dragging, startPos, startInput
-        local function begin(frame)
-            connect(frame.InputBegan, function(input)
-                if isPress(input) then dragging, startPos, startInput = true, main.Position, input.Position end
-            end)
-        end
-        begin(dragArea)
-        begin(logoArea)
-        connect(UserInputService.InputChanged, function(input)
-            if dragging and isMove(input) then
-                local d = input.Position - startInput
-                main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
-            end
-        end)
-        connect(UserInputService.InputEnded, function(input) if isPress(input) then dragging = false end end)
-    end
 
     return Window
 end
