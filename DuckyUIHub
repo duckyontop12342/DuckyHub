@@ -723,15 +723,27 @@ function Ducky:CreateWindow(opts)
         function Tab:CreateSection(a)
             order += 1
             local label = type(a) == "table" and (a.Name or "") or tostring(a or "")
-            local f = create("Frame", { Parent = scroll, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 22), LayoutOrder = order })
-            create("Frame", {
-                Parent = f, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
-                Size = UDim2.fromOffset(3, 12), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0,
-            }, { corner(2) })
+            local f = create("Frame", { Parent = scroll, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 24), LayoutOrder = order })
             local l = text({
-                Parent = f, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -10, 1, 0),
-                Text = string.upper(label), FontFace = FONT_BOLD, TextSize = 11, TextColor3 = Theme.Desc,
+                Parent = f, Position = UDim2.fromOffset(2, 4), Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X,
+                Text = string.upper(label), FontFace = FONT_BOLD, TextSize = 11, TextColor3 = Theme.RowText,
             })
+            -- line that starts after the text and fades out to the right
+            local line = create("Frame", {
+                Parent = f, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 60, 0, 12),
+                Size = UDim2.new(1, -60, 0, 1), BackgroundColor3 = Theme.Control, BorderSizePixel = 0,
+            }, {
+                create("UIGradient", {
+                    Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }),
+                }),
+            })
+            local function place()
+                local w = l.TextBounds.X + 12
+                line.Position = UDim2.new(0, w, 0, 12)
+                line.Size = UDim2.new(1, -w, 0, 1)
+            end
+            l:GetPropertyChangedSignal("TextBounds"):Connect(place)
+            place()
             return { Set = function(_, t) l.Text = string.upper(tostring(t)) end }
         end
 
