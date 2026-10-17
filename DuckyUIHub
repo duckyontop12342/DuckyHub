@@ -1547,6 +1547,78 @@ function Ducky:CreateWindow(opts)
             show()
         end)
     end
+do
+        local dragArea = create("Frame", { Parent = main, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 14), ZIndex = 0, Active = true })
+        local dragging, startPos, startInput
+        local function begin(frame)
+            connect(frame.InputBegan, function(input)
+                if isPress(input) then dragging, startPos, startInput = true, main.Position, input.Position end
+            end)
+        end
+        begin(dragArea)
+        begin(logoArea)
+        connect(UserInputService.InputChanged, function(input)
+            if dragging and isMove(input) then
+                local d = input.Position - startInput
+                main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+            end
+        end)
+        connect(UserInputService.InputEnded, function(input) if isPress(input) then dragging = false end end)
+    end
+    -- custom scrollbar --------------------------------------------------------
+    local track = create("Frame", {
+        Parent = main, BackgroundTransparency = 1,
+        Position = UDim2.new(1, -34, 0, 16), Size = UDim2.new(0, 10, 1, -32),
+    })
+    local thumb = create("Frame", {
+        Parent = track, BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+        Size = UDim2.new(1, 0, 0, 40), Visible = false,
+    }, {
+        corner(5),
+        create("UIGradient", { Rotation = 90, Color = ColorSequence.new(Theme.Accent, Theme.AccentDim) }),
+    })
+    local thumbHit = create("TextButton", { Parent = thumb, BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "" })
+    local currentTab, currentPage
+    local barConns = {}
+    local function updateBar()
+        local s = currentPage and currentPage.Scroll
+        if not s then thumb.Visible = false; return end
+        local view, canvas = s.AbsoluteWindowSize.Y, s.AbsoluteCanvasSize.Y
+        if canvas <= view + 1 then thumb.Visible = false; return end
+        thumb.Visible = true
+        local trackH = track.AbsoluteSize.Y
+        local h = math.max(30, trackH * view / canvas)
+        local a = math.clamp(s.CanvasPosition.Y / (canvas - view), 0, 1)
+        thumb.Size = UDim2.new(1, 0, 0, h)
+        thumb.Position = UDim2.new(0, 0, 0, (trackH - h) * a)
+    end
+    local function bindBar(scroll)
+        for _, c in ipairs(barConns) do c:Disconnect() end
+        table.clear(barConns)
+        for _, prop in ipairs({ "CanvasPosition", "AbsoluteCanvasSize", "AbsoluteWindowSize" }) do
+            table.insert(barConns, scroll:GetPropertyChangedSignal(prop):Connect(updateBar))
+        end
+        updateBar()
+    end
+    do
+        local dragging, startY, startCanvas
+        thumbHit.InputBegan:Connect(function(input)
+            if isPress(input) and currentPage then
+                dragging, startY, startCanvas = true, input.Position.Y, currentPage.Scroll.CanvasPosition.Y
+            end
+        end)
+        connect(UserInputService.InputChanged, function(input)
+            if dragging and isMove(input) and currentPage then
+                local s = currentPage.Scroll
+                local trackRange = track.AbsoluteSize.Y - thumb.AbsoluteSize.Y
+                local maxScroll = s.AbsoluteCanvasSize.Y - s.AbsoluteWindowSize.Y
+                if trackRange > 0 then
+                    s.CanvasPosition = Vector2.new(0, startCanvas + (input.Position.Y - startY) / trackRange * maxScroll)
+                end
+            end
+        end)
+        connect(UserInputService.InputEnded, function(input) if isPress(input) then dragging = false end end)
+    end
 
     return Window
 end
