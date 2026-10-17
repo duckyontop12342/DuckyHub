@@ -29,18 +29,19 @@ local HttpService      = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
 local Theme = {
-    Window    = Color3.fromRGB(9, 9, 9),
-    Sidebar   = Color3.fromRGB(13, 13, 13),
-    Border    = Color3.fromRGB(36, 36, 36),
-    Card      = Color3.fromRGB(20, 20, 20),
-    CardHover = Color3.fromRGB(27, 27, 27),
-    Field     = Color3.fromRGB(12, 12, 12),
+    Window    = Color3.fromRGB(13, 13, 13),
+    Sidebar   = Color3.fromRGB(9, 9, 9),
+    Border    = Color3.fromRGB(32, 32, 32),
+    Card      = Color3.fromRGB(19, 19, 19),
+    CardHover = Color3.fromRGB(23, 23, 23),
+    Field     = Color3.fromRGB(11, 11, 11),
+    Track     = Color3.fromRGB(34, 34, 34),
     Control   = Color3.fromRGB(52, 52, 52),
     Accent    = Color3.fromRGB(255, 214, 10),
     AccentDim = Color3.fromRGB(214, 160, 0),
     OnAccent  = Color3.fromRGB(10, 10, 10),
     Text      = Color3.fromRGB(255, 255, 255),
-    Desc      = Color3.fromRGB(128, 128, 128),
+    Desc      = Color3.fromRGB(122, 122, 122),
     TabIdle   = Color3.fromRGB(112, 112, 112),
     TabHover  = Color3.fromRGB(190, 190, 190),
     RowText   = Color3.fromRGB(210, 210, 210),
@@ -615,7 +616,7 @@ function Ducky:CreateWindow(opts)
             if o.Description then
                 desc = text({
                     Parent = head, Position = UDim2.fromOffset(0, 17), Size = UDim2.new(1, -reserve, 0, 13),
-                    Text = o.Description, TextColor3 = Theme.Desc, TextSize = 11, TextTruncate = Enum.TextTruncate.AtEnd,
+                    Text = o.Description, TextColor3 = Theme.Desc, TextSize = 11, FontFace = FONT_SEMI, TextTruncate = Enum.TextTruncate.AtEnd,
                 })
             end
             return c, head, title, desc
@@ -741,30 +742,30 @@ function Ducky:CreateWindow(opts)
             return Toggle
         end
 
-        -- button ----------------------------------------------------------------
+        -- button: title on top, full-width button underneath (like the reference)
         function Tab:CreateButton(o)
-            local _, head, title = card(o, 62)
-            local pill = create("Frame", {
-                Parent = head, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
-                Size = UDim2.fromOffset(50, 22), BackgroundColor3 = Theme.Control, BorderSizePixel = 0,
+            local c, _, title = card(o, 0)
+            local btn = create("TextButton", {
+                Parent = c, Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Theme.Field, BorderSizePixel = 0,
+                Text = o.ButtonText or "Run", FontFace = FONT_BOLD, TextSize = 12, TextColor3 = Theme.Text,
+                AutoButtonColor = false, LayoutOrder = 1,
             }, { corner(5) })
-            local pillText = text({
-                Parent = pill, Size = UDim2.fromScale(1, 1), Text = o.ButtonText or "Run",
-                TextXAlignment = Enum.TextXAlignment.Center, FontFace = FONT_BOLD, TextSize = 11,
-            })
-            local b = overlay(head)
-            b.MouseEnter:Connect(function()
-                tween(pill, { BackgroundColor3 = Theme.Accent })
-                tween(pillText, { TextColor3 = Theme.OnAccent })
+            local scaleObj = create("UIScale", { Parent = btn })
+            btn.MouseEnter:Connect(function()
+                tween(btn, { BackgroundColor3 = Theme.Track })
+                tween(btn, { TextColor3 = Theme.Accent })
             end)
-            b.MouseLeave:Connect(function()
-                tween(pill, { BackgroundColor3 = Theme.Control })
-                tween(pillText, { TextColor3 = Theme.Text })
+            btn.MouseLeave:Connect(function()
+                tween(btn, { BackgroundColor3 = Theme.Field })
+                tween(btn, { TextColor3 = Theme.Text })
             end)
-            b.MouseButton1Down:Connect(function() tween(pill, { Size = UDim2.fromOffset(46, 20) }, 0.08) end)
-            b.MouseButton1Up:Connect(function() tween(pill, { Size = UDim2.fromOffset(50, 22) }, 0.16, Enum.EasingStyle.Back) end)
-            b.MouseButton1Click:Connect(function() if o.Callback then task.spawn(o.Callback) end end)
-            return { Set = function(_, n) title.Text = tostring(n) end }
+            btn.MouseButton1Down:Connect(function() tween(scaleObj, { Scale = 0.97 }, 0.08) end)
+            btn.MouseButton1Up:Connect(function() tween(scaleObj, { Scale = 1 }, 0.18, Enum.EasingStyle.Back) end)
+            btn.MouseButton1Click:Connect(function() if o.Callback then task.spawn(o.Callback) end end)
+            return {
+                Set = function(_, n) title.Text = tostring(n) end,
+                SetText = function(_, n) btn.Text = tostring(n) end,
+            }
         end
 
         -- slider ----------------------------------------------------------------
@@ -773,26 +774,26 @@ function Ducky:CreateWindow(opts)
             local min, max = range[1], range[2]
             local inc = o.Increment or 1
             local suffix = o.Suffix or ""
-            local c, head = card(o, 42)
+            local c, head = card(o, 50)
 
             local val = text({
-                Parent = head, Position = UDim2.new(1, -42, 0, 0), Size = UDim2.new(0, 42, 0, 15),
+                Parent = head, Position = UDim2.new(1, -50, 0, 0), Size = UDim2.new(0, 50, 0, 15),
                 TextXAlignment = Enum.TextXAlignment.Right, FontFace = FONT_BOLD, TextSize = 12,
             })
 
-            local bar = create("Frame", { Parent = c, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 14), LayoutOrder = 1 })
+            local bar = create("Frame", { Parent = c, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 1 })
             local trk = create("Frame", {
-                Parent = bar, Position = UDim2.new(0, 5, 0.5, -3), Size = UDim2.new(1, -10, 0, 6),
-                BackgroundColor3 = Theme.Control, BorderSizePixel = 0,
-            }, { corner(3) })
-            local fill = create("Frame", { Parent = trk, Size = UDim2.fromScale(0, 1), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0 }, {
-                corner(3),
+                Parent = bar, Position = UDim2.new(0, 0, 0.5, -4), Size = UDim2.new(1, 0, 0, 8),
+                BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
+            }, { corner(4) })
+            local fill = create("Frame", { Parent = trk, Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 }, {
+                corner(4),
                 create("UIGradient", { Color = ColorSequence.new(Theme.AccentDim, Theme.Accent) }),
             })
             local knob = create("Frame", {
                 Parent = trk, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5),
-                Size = UDim2.fromOffset(9, 15), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
-            }, { corner(3) })
+                Size = UDim2.fromOffset(10, 14), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 2,
+            }, { corner(4) })
 
             local Slider = { Type = "Slider", CurrentValue = min, Flag = o.Flag }
             function Slider:Set(v, silent, nosave)
@@ -801,7 +802,7 @@ function Ducky:CreateWindow(opts)
                 self.CurrentValue = v
                 local a = (v - min) / math.max(max - min, 1e-9)
                 tween(fill, { Size = UDim2.fromScale(a, 1) }, 0.08)
-                tween(knob, { Position = UDim2.fromScale(a, 0.5) }, 0.08)
+                tween(knob, { Position = UDim2.new(a, math.floor((0.5 - a) * 10), 0.5, 0) }, 0.08)
                 val.Text = tostring(v) .. suffix
                 if not silent and o.Callback then task.spawn(o.Callback, v) end
                 if not nosave then saveConfig() end
@@ -817,7 +818,7 @@ function Ducky:CreateWindow(opts)
             bar.InputBegan:Connect(function(i)
                 if isPress(i) then
                     dragging = true
-                    tween(knob, { Size = UDim2.fromOffset(11, 17) }, 0.1)
+                    tween(knob, { Size = UDim2.fromOffset(12, 16) }, 0.1)
                     fromX(i.Position.X)
                 end
             end)
@@ -825,7 +826,7 @@ function Ducky:CreateWindow(opts)
             connect(UserInputService.InputEnded, function(i)
                 if isPress(i) and dragging then
                     dragging = false
-                    tween(knob, { Size = UDim2.fromOffset(9, 15) }, 0.12)
+                    tween(knob, { Size = UDim2.fromOffset(10, 14) }, 0.12)
                 end
             end)
 
@@ -834,70 +835,56 @@ function Ducky:CreateWindow(opts)
             return Slider
         end
 
-        -- dropdown / multi dropdown -----------------------------------------------------
+        -- dropdown. Single = field that opens a list. Multi = always-open list (like the reference)
         function Tab:CreateDropdown(o)
             local c = card(o, 0)
             local multi = (o.MultipleOptions or o.Multi) and true or false
             local options = {}
             for _, v in ipairs(o.Options or {}) do table.insert(options, tostring(v)) end
 
-            local ROW, MAXROWS, FOOT = 26, 6, 28
+            local ROW = multi and 31 or 28
+            local MAXROWS = o.MaxRows or 6
             local selected = {}
-            local Dropdown = { Type = "Dropdown", CurrentOption = {}, Open = false, Flag = o.Flag }
+            local Dropdown = { Type = "Dropdown", CurrentOption = {}, Open = multi, Flag = o.Flag }
 
             local wrap = create("Frame", {
                 Parent = c, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
                 AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1,
             }, { create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }) })
 
-            local box = create("TextButton", {
-                Parent = wrap, Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Theme.Field,
-                BorderSizePixel = 0, Text = "", AutoButtonColor = false, LayoutOrder = 0,
-            }, { corner(5) })
-            local boxStroke = stroke(Theme.Border, 1)
-            boxStroke.Parent = box
-
-            local shown = text({
-                Parent = box, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -(multi and 64 or 34), 1, 0),
-                TextTruncate = Enum.TextTruncate.AtEnd, TextColor3 = Theme.Desc, FontFace = FONT_SEMI,
-            })
-            local badge, badgeText
-            if multi then
-                badge = create("Frame", {
-                    Parent = box, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -30, 0.5, 0),
-                    Size = UDim2.fromOffset(20, 16), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Visible = false,
-                }, { corner(8) })
-                badgeText = text({
-                    Parent = badge, Size = UDim2.fromScale(1, 1), TextXAlignment = Enum.TextXAlignment.Center,
-                    FontFace = FONT_BOLD, TextSize = 10, TextColor3 = Theme.OnAccent, Text = "0",
+            local box, shown, arrow
+            if not multi then
+                box = create("TextButton", {
+                    Parent = wrap, Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Theme.Field,
+                    BorderSizePixel = 0, Text = "", AutoButtonColor = false, LayoutOrder = 0,
+                }, { corner(5) })
+                shown = text({
+                    Parent = box, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -36, 1, 0),
+                    TextTruncate = Enum.TextTruncate.AtEnd, TextColor3 = Theme.Desc, FontFace = FONT_SEMI,
                 })
+                arrow = icon({
+                    Parent = box, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(1, -16, 0.5, 0),
+                    Size = UDim2.fromOffset(13, 13),
+                }, "chevron-down", Theme.Desc)
             end
-            local arrow = icon({
-                Parent = box, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(1, -14, 0.5, 0),
-                Size = UDim2.fromOffset(14, 14),
-            }, "chevron-down", Theme.Desc)
+
+            local function visRows() return math.max(1, math.min(#options, MAXROWS)) end
+            local function panelH() return visRows() * ROW + 6 end
+            local function listH() return panelH() + (multi and 0 or 5) end
 
             local list = create("Frame", {
-                Parent = wrap, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
-                ClipsDescendants = true, LayoutOrder = 1, Visible = false,
+                Parent = wrap, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, multi and listH() or 0),
+                ClipsDescendants = true, LayoutOrder = 1, Visible = multi,
             })
             local panel = create("Frame", {
-                Parent = list, Position = UDim2.fromOffset(1, 5), Size = UDim2.new(1, -2, 1, -6),
+                Parent = list, Position = UDim2.fromOffset(0, multi and 0 or 5), Size = UDim2.new(1, 0, 0, panelH()),
                 BackgroundColor3 = Theme.Field, BorderSizePixel = 0,
-            }, { corner(5), stroke(Theme.Border, 1) })
-
-            local function visRows() return math.min(#options, MAXROWS) end
-
+            }, { corner(5) })
             local optScroll = create("ScrollingFrame", {
-                Parent = panel, BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 2),
+                Parent = panel, BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 3),
                 Size = UDim2.new(1, 0, 0, visRows() * ROW), ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Accent,
                 CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
             }, { create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }) })
-
-            local footer
-            local function listHeight()
-                return 5 + 2 + visRows() * ROW + (multi and FOOT or 0) + 2 + 1
-            end
 
             local rows = {}
 
@@ -912,36 +899,17 @@ function Ducky:CreateWindow(opts)
                 Dropdown.CurrentOption = names
                 for opt, r in pairs(rows) do
                     local on = selected[opt] == true
-                    tween(r.btn, { BackgroundTransparency = on and 0.93 or 1 }, 0.12)
-                    if multi then
-                        tween(r.label, { TextColor3 = on and Theme.Text or Theme.RowText })
-                        tween(r.box, { BackgroundColor3 = on and Theme.Accent or Theme.Control })
-                        tween(r.check, {
-                            ImageTransparency = on and 0 or 1,
-                            Size = on and UDim2.fromOffset(11, 11) or UDim2.fromOffset(4, 4),
-                        }, 0.2, Enum.EasingStyle.Back)
+                    tween(r.btn, { BackgroundTransparency = on and 0.92 or 1 }, 0.15)
+                    tween(r.label, { TextColor3 = on and Theme.Accent or Theme.Desc })
+                    tween(r.mark, { BackgroundTransparency = on and 0 or 1, Size = UDim2.fromOffset(2, on and 14 or 4) }, 0.2, Enum.EasingStyle.Back)
+                end
+                if shown then
+                    if #names == 0 then
+                        shown.Text = "Select..."
+                        tween(shown, { TextColor3 = Theme.Desc })
                     else
-                        tween(r.label, { TextColor3 = on and Theme.Accent or Theme.RowText })
-                        tween(r.check, { ImageTransparency = on and 0 or 1 })
-                    end
-                end
-
-                if #names == 0 then
-                    shown.Text = multi and "None selected" or "Select..."
-                    tween(shown, { TextColor3 = Theme.Desc })
-                else
-                    shown.Text = table.concat(names, ", ")
-                    tween(shown, { TextColor3 = Theme.Text })
-                end
-                if badge then
-                    local n = #names
-                    badgeText.Text = tostring(n)
-                    if n > 0 and not badge.Visible then
-                        badge.Visible = true
-                        badge.Size = UDim2.fromOffset(12, 10)
-                        tween(badge, { Size = UDim2.fromOffset(20, 16) }, 0.25, Enum.EasingStyle.Back)
-                    elseif n == 0 then
-                        badge.Visible = false
+                        shown.Text = table.concat(names, ", ")
+                        tween(shown, { TextColor3 = Theme.RowText })
                     end
                 end
             end
@@ -953,12 +921,12 @@ function Ducky:CreateWindow(opts)
             end
 
             local function setOpen(v)
+                if multi then return end
                 Dropdown.Open = v
                 tween(arrow, { Rotation = v and 180 or 0, ImageColor3 = v and Theme.Accent or Theme.Desc }, 0.25, Enum.EasingStyle.Quint)
-                tween(boxStroke, { Color = v and Theme.Accent or Theme.Border })
                 if v then
                     list.Visible = true
-                    tween(list, { Size = UDim2.new(1, 0, 0, listHeight()) }, 0.28, Enum.EasingStyle.Quint)
+                    tween(list, { Size = UDim2.new(1, 0, 0, listH()) }, 0.28, Enum.EasingStyle.Quint)
                 else
                     tween(list, { Size = UDim2.new(1, 0, 0, 0) }, 0.22, Enum.EasingStyle.Quint).Completed:Connect(function()
                         if not Dropdown.Open then list.Visible = false end
@@ -970,39 +938,34 @@ function Ducky:CreateWindow(opts)
                 for _, r in pairs(rows) do r.btn:Destroy() end
                 rows = {}
                 optScroll.Size = UDim2.new(1, 0, 0, visRows() * ROW)
-                if footer then footer.Position = UDim2.new(0, 0, 0, 2 + visRows() * ROW) end
+                panel.Size = UDim2.new(1, 0, 0, panelH())
+                if Dropdown.Open then list.Size = UDim2.new(1, 0, 0, listH()) end
 
                 for i, opt in ipairs(options) do
                     local btn = create("TextButton", {
                         Parent = optScroll, Size = UDim2.new(1, 0, 0, ROW), BackgroundColor3 = Color3.new(1, 1, 1),
                         BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = i,
                     })
+                    local mark = create("Frame", {
+                        Parent = btn, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
+                        Size = UDim2.fromOffset(2, 4), BackgroundColor3 = Theme.Accent, BackgroundTransparency = 1, BorderSizePixel = 0,
+                    }, { corner(1) })
                     local label = text({
-                        Parent = btn, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -40, 1, 0),
-                        Text = opt, FontFace = FONT_SEMI, TextSize = 12, TextColor3 = Theme.RowText,
+                        Parent = btn, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -24, 1, 0),
+                        Text = opt, FontFace = FONT_SEMI, TextSize = 11, TextColor3 = Theme.Desc,
                         TextTruncate = Enum.TextTruncate.AtEnd,
                     })
-                    local r = { btn = btn, label = label }
-                    if multi then
-                        r.box = create("Frame", {
-                            Parent = btn, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
-                            Size = UDim2.fromOffset(14, 14), BackgroundColor3 = Theme.Control, BorderSizePixel = 0,
-                        }, { corner(3) })
-                        r.check = icon({
-                            Parent = r.box, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-                            Size = UDim2.fromOffset(4, 4), ImageTransparency = 1,
-                        }, "check", Theme.OnAccent)
-                    else
-                        r.check = icon({
-                            Parent = btn, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
-                            Size = UDim2.fromOffset(13, 13), ImageTransparency = 1,
-                        }, "check", Theme.Accent)
-                    end
                     btn.MouseEnter:Connect(function()
-                        tween(btn, { BackgroundTransparency = selected[opt] and 0.88 or 0.95 }, 0.1)
+                        if not selected[opt] then
+                            tween(btn, { BackgroundTransparency = 0.96 }, 0.1)
+                            tween(label, { TextColor3 = Theme.RowText }, 0.1)
+                        end
                     end)
                     btn.MouseLeave:Connect(function()
-                        tween(btn, { BackgroundTransparency = selected[opt] and 0.93 or 1 }, 0.1)
+                        if not selected[opt] then
+                            tween(btn, { BackgroundTransparency = 1 }, 0.1)
+                            tween(label, { TextColor3 = Theme.Desc }, 0.1)
+                        end
                     end)
                     btn.MouseButton1Click:Connect(function()
                         if multi then
@@ -1014,39 +977,9 @@ function Ducky:CreateWindow(opts)
                         end
                         commit()
                     end)
-                    rows[opt] = r
+                    rows[opt] = { btn = btn, label = label, mark = mark }
                 end
                 visuals()
-                if Dropdown.Open then list.Size = UDim2.new(1, 0, 0, listHeight()) end
-            end
-
-            if multi then
-                footer = create("Frame", {
-                    Parent = panel, BackgroundTransparency = 1, Position = UDim2.new(0, 0, 0, 2 + visRows() * ROW),
-                    Size = UDim2.new(1, 0, 0, FOOT),
-                })
-                create("Frame", {
-                    Parent = footer, Size = UDim2.new(1, -16, 0, 1), Position = UDim2.fromOffset(8, 0),
-                    BackgroundColor3 = Theme.Border, BorderSizePixel = 0,
-                })
-                local function footBtn(label, xScale, fn)
-                    local b = create("TextButton", {
-                        Parent = footer, BackgroundTransparency = 1, Position = UDim2.new(xScale, 0, 0, 1),
-                        Size = UDim2.new(0.5, 0, 1, -1), Text = label, FontFace = FONT_BOLD, TextSize = 11,
-                        TextColor3 = Theme.Desc, AutoButtonColor = false,
-                    })
-                    b.MouseEnter:Connect(function() tween(b, { TextColor3 = Theme.Accent }) end)
-                    b.MouseLeave:Connect(function() tween(b, { TextColor3 = Theme.Desc }) end)
-                    b.MouseButton1Click:Connect(fn)
-                end
-                footBtn("Select all", 0, function()
-                    for _, opt in ipairs(options) do selected[opt] = true end
-                    commit()
-                end)
-                footBtn("Clear", 0.5, function()
-                    table.clear(selected)
-                    commit()
-                end)
             end
 
             -- Dropdown:Set("One") or Dropdown:Set({ "One", "Two" })
@@ -1074,18 +1007,16 @@ function Ducky:CreateWindow(opts)
             function Dropdown:_ToConfig() return self.CurrentOption end
             function Dropdown:_FromConfig(v) self:Set(v) end
 
-            box.MouseEnter:Connect(function()
-                if not Dropdown.Open then tween(boxStroke, { Color = Theme.Control }) end
-            end)
-            box.MouseLeave:Connect(function()
-                if not Dropdown.Open then tween(boxStroke, { Color = Theme.Border }) end
-            end)
-            box.MouseButton1Click:Connect(function() setOpen(not Dropdown.Open) end)
-            connect(UserInputService.InputBegan, function(input)
-                if Dropdown.Open and isPress(input) and not inside(wrap, UserInputService:GetMouseLocation()) then
-                    setOpen(false)
-                end
-            end)
+            if box then
+                box.MouseEnter:Connect(function() if not Dropdown.Open then tween(box, { BackgroundColor3 = Theme.Track }) end end)
+                box.MouseLeave:Connect(function() tween(box, { BackgroundColor3 = Theme.Field }) end)
+                box.MouseButton1Click:Connect(function() setOpen(not Dropdown.Open) end)
+                connect(UserInputService.InputBegan, function(input)
+                    if Dropdown.Open and isPress(input) and not inside(wrap, UserInputService:GetMouseLocation()) then
+                        setOpen(false)
+                    end
+                end)
+            end
 
             rebuild()
             register(o, Dropdown)
@@ -1346,8 +1277,14 @@ function Ducky:CreateWindow(opts)
             Text = "", AutoButtonColor = false, LayoutOrder = #Window.Tabs + 1,
         })
         local fill = create("Frame", {
-            Parent = button, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Card,
+            Parent = button, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Accent,
             BackgroundTransparency = 1, BorderSizePixel = 0,
+        }, {
+            create("UIGradient", {
+                Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 0.8), NumberSequenceKeypoint.new(1, 1),
+                }),
+            }),
         })
 
         local ico = icon({
@@ -1457,9 +1394,15 @@ function Ducky:CreateWindow(opts)
     if opts.LoadingEnabled == false then
         task.defer(show)
     else
-        local duration  = opts.LoadingTime or 2.8
+        local duration  = opts.LoadingTime or 3.2
         local stepNames = opts.LoadingSteps or { "Icons", "Interface", "Config" }
         local nSteps    = #stepNames
+        local tips      = opts.LoadingTips or {
+            "Press " .. keybind.Name .. " to show or hide the menu",
+            "Drag the logo to move the window",
+            "Your settings can save automatically",
+        }
+        local title     = tostring(opts.LoadingTitle or name)
 
         local backdrop = create("Frame", {
             Parent = gui, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
@@ -1474,19 +1417,69 @@ function Ducky:CreateWindow(opts)
 
         local loader = create("CanvasGroup", {
             Parent = gui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-            Size = UDim2.fromOffset(380, 250), BackgroundColor3 = Theme.Window, BorderSizePixel = 0,
+            Size = UDim2.fromOffset(400, 276), BackgroundColor3 = Theme.Window, BorderSizePixel = 0,
             GroupTransparency = 1,
-        }, { corner(12), stroke(Theme.Border, 1) })
+        }, { corner(14), stroke(Theme.Border, 1) })
         local lscale = create("UIScale", { Parent = loader, Scale = 0.85 })
+
+        -- soft yellow glow at the top of the card
+        create("Frame", {
+            Parent = loader, Size = UDim2.new(1, 0, 0, 110), BackgroundColor3 = Theme.Accent,
+            BackgroundTransparency = 0, BorderSizePixel = 0, ZIndex = 0,
+        }, {
+            create("UIGradient", {
+                Rotation = 90,
+                Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(1, 1) }),
+            }),
+        })
+
+        -- floating particles
+        local rng = Random.new()
+        for _ = 1, 16 do
+            local size = rng:NextInteger(2, 4)
+            local dot = create("Frame", {
+                Parent = loader, Size = UDim2.fromOffset(size, size), BorderSizePixel = 0, ZIndex = 1,
+                BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0.55,
+                Position = UDim2.new(rng:NextNumber(0.03, 0.97), 0, 0, rng:NextInteger(120, 280)),
+            }, { corner(size) })
+            task.spawn(function()
+                task.wait(rng:NextNumber(0, 2))
+                while dot.Parent do
+                    local t = rng:NextNumber(2.5, 5)
+                    dot.Position = UDim2.new(rng:NextNumber(0.03, 0.97), 0, 0, 290)
+                    dot.BackgroundTransparency = 1
+                    tween(dot, { BackgroundTransparency = 0.5 }, t * 0.3, Enum.EasingStyle.Sine)
+                    tween(dot, { Position = UDim2.new(dot.Position.X.Scale, 0, 0, rng:NextInteger(-10, 60)) }, t, Enum.EasingStyle.Linear)
+                    task.wait(t * 0.7)
+                    if dot.Parent then tween(dot, { BackgroundTransparency = 1 }, t * 0.3) end
+                    task.wait(t * 0.3)
+                end
+            end)
+        end
+
+        -- sweeping highlight across the top edge
+        local sweep = create("Frame", {
+            Parent = loader, Position = UDim2.new(0, -140, 0, 0), Size = UDim2.fromOffset(140, 2),
+            BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, ZIndex = 3,
+        }, {
+            create("UIGradient", {
+                Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1),
+                }),
+            }),
+        })
+        TweenService:Create(sweep, TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, -1, false, 0.4), {
+            Position = UDim2.new(1, 0, 0, 0),
+        }):Play()
 
         -- logo ring: dim base ring + a bright arc that spins around it
         local ring = create("Frame", {
-            Parent = loader, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 24),
-            Size = UDim2.fromOffset(64, 64), BackgroundTransparency = 1, BorderSizePixel = 0,
-        }, { corner(32), stroke(Theme.Border, 2) })
+            Parent = loader, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 22),
+            Size = UDim2.fromOffset(60, 60), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 2,
+        }, { corner(30), stroke(Theme.Border, 2) })
         local arc = create("Frame", {
             Parent = ring, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
-        }, { corner(32) })
+        }, { corner(30) })
         local arcStroke = create("UIStroke", {
             Parent = arc, Color = Color3.new(1, 1, 1), Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
         })
@@ -1502,36 +1495,40 @@ function Ducky:CreateWindow(opts)
 
         local logoIcon = icon({
             Parent = ring, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-            Size = UDim2.fromOffset(30, 30),
+            Size = UDim2.fromOffset(28, 28), ZIndex = 3,
         }, opts.LoadingIcon or "bird", Theme.Accent)
         TweenService:Create(logoIcon, TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-            Size = UDim2.fromOffset(25, 25),
+            Size = UDim2.fromOffset(23, 23),
         }):Play()
 
-        -- title with a shimmer sweeping across it
-        local ltitle = text({
-            Parent = loader, Position = UDim2.fromOffset(20, 98), Size = UDim2.new(1, -40, 0, 34),
-            TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingTitle or name,
-            TextScaled = true, FontFace = FONT_ITAL,
-        })
-        create("UITextSizeConstraint", { Parent = ltitle, MaxTextSize = 28, MinTextSize = 12 })
-        local shimmer = create("UIGradient", {
-            Parent = ltitle, Offset = Vector2.new(-1, 0),
-            Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Theme.Accent),
-                ColorSequenceKeypoint.new(0.4, Theme.Accent),
-                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)),
-                ColorSequenceKeypoint.new(0.6, Theme.Accent),
-                ColorSequenceKeypoint.new(1, Theme.Accent),
+        -- title: letters drop in one by one, then a wave of white runs through them
+        local letterRow = create("Frame", {
+            Parent = loader, BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 92), Size = UDim2.new(1, 0, 0, 36),
+            ZIndex = 2,
+        }, {
+            create("UIListLayout", {
+                FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
+                VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder,
             }),
         })
-        TweenService:Create(shimmer, TweenInfo.new(1.4, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, -1, false, 0.3), {
-            Offset = Vector2.new(1, 0),
-        }):Play()
+        local letters = {}
+        for i = 1, #title do
+            local ch = title:sub(i, i)
+            local holder = create("Frame", {
+                Parent = letterRow, BackgroundTransparency = 1, Size = UDim2.fromOffset(0, 36),
+                AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = i, ClipsDescendants = false,
+            })
+            local l = text({
+                Parent = holder, Position = UDim2.fromOffset(0, 14), Size = UDim2.fromOffset(0, 36),
+                AutomaticSize = Enum.AutomaticSize.X, Text = ch == " " and "\u{00A0}" or ch, TextSize = 30,
+                FontFace = FONT_ITAL, TextColor3 = Theme.Accent, TextTransparency = 1, ZIndex = 2,
+            })
+            letters[i] = l
+        end
 
         local lunder = create("Frame", {
-            Parent = loader, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 134),
-            Size = UDim2.fromOffset(0, 2), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+            Parent = loader, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 132),
+            Size = UDim2.fromOffset(0, 2), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 2,
         }, {
             create("UIGradient", {
                 Color = ColorSequence.new(Theme.Accent, Theme.AccentDim),
@@ -1541,18 +1538,18 @@ function Ducky:CreateWindow(opts)
             }),
         })
 
-        text({
-            Parent = loader, Position = UDim2.fromOffset(20, 142), Size = UDim2.new(1, -40, 0, 16),
+        local subtitle = text({
+            Parent = loader, Position = UDim2.fromOffset(20, 140), Size = UDim2.new(1, -40, 0, 16),
             TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingSubtitle or "Preparing your interface",
-            TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 12,
+            TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 12, TextTransparency = 1, ZIndex = 2,
         })
 
         -- step checklist
         local steps = {}
         for i, nm in ipairs(stepNames) do
             local cell = create("Frame", {
-                Parent = loader, BackgroundTransparency = 1,
-                Position = UDim2.new((i - 1) / nSteps, 0, 0, 172), Size = UDim2.new(1 / nSteps, 0, 0, 16),
+                Parent = loader, BackgroundTransparency = 1, ZIndex = 2,
+                Position = UDim2.new((i - 1) / nSteps, 0, 0, 170), Size = UDim2.new(1 / nSteps, 0, 0, 16),
             }, {
                 create("UIListLayout", {
                     FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
@@ -1561,37 +1558,57 @@ function Ducky:CreateWindow(opts)
             })
             local dot = create("Frame", {
                 Parent = cell, Size = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Control,
-                BorderSizePixel = 0, LayoutOrder = 1,
+                BorderSizePixel = 0, LayoutOrder = 1, ZIndex = 2,
             }, { corner(6) })
             local check = icon({
                 Parent = dot, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-                Size = UDim2.fromOffset(0, 0), ImageTransparency = 1,
+                Size = UDim2.fromOffset(0, 0), ImageTransparency = 1, ZIndex = 3,
             }, "check", Theme.OnAccent)
             local lab = text({
                 Parent = cell, Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X,
-                Text = nm, TextColor3 = Theme.TabIdle, FontFace = FONT_SEMI, TextSize = 11, LayoutOrder = 2,
+                Text = nm, TextColor3 = Theme.TabIdle, FontFace = FONT_SEMI, TextSize = 11, LayoutOrder = 2, ZIndex = 2,
             })
             steps[i] = { dot = dot, check = check, label = lab, name = nm, done = false }
         end
 
         local barTrack = create("Frame", {
-            Parent = loader, Position = UDim2.new(0, 28, 0, 204), Size = UDim2.new(1, -56, 0, 4),
-            BackgroundColor3 = Theme.Control, BorderSizePixel = 0,
-        }, { corner(2) })
+            Parent = loader, Position = UDim2.new(0, 30, 0, 202), Size = UDim2.new(1, -60, 0, 5),
+            BackgroundColor3 = Theme.Track, BorderSizePixel = 0, ZIndex = 2,
+        }, { corner(3) })
         local barFill = create("Frame", {
-            Parent = barTrack, Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+            Parent = barTrack, Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 3,
         }, {
-            corner(2),
+            corner(3),
             create("UIGradient", { Color = ColorSequence.new(Theme.AccentDim, Theme.Accent) }),
         })
+        create("Frame", { -- glowing head
+            Parent = barFill, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
+            Size = UDim2.fromOffset(40, 15), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, ZIndex = 2,
+        }, {
+            corner(7),
+            create("UIGradient", {
+                Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.55) }),
+            }),
+        })
+
         local status = text({
-            Parent = loader, Position = UDim2.fromOffset(28, 216), Size = UDim2.new(0.7, 0, 0, 14),
-            Text = "Starting...", TextColor3 = Theme.Desc, FontFace = FONT_REG, TextSize = 11,
+            Parent = loader, Position = UDim2.fromOffset(30, 214), Size = UDim2.new(0.7, 0, 0, 14),
+            Text = "Starting...", TextColor3 = Theme.Desc, FontFace = FONT_REG, TextSize = 11, ZIndex = 2,
         })
         local percent = text({
-            Parent = loader, Position = UDim2.new(1, -78, 0, 216), Size = UDim2.fromOffset(50, 14),
+            Parent = loader, Position = UDim2.new(1, -80, 0, 214), Size = UDim2.fromOffset(50, 14),
             TextXAlignment = Enum.TextXAlignment.Right, Text = "0%", FontFace = FONT_BOLD, TextSize = 11,
-            TextColor3 = Theme.Accent,
+            TextColor3 = Theme.Accent, ZIndex = 2,
+        })
+
+        create("Frame", {
+            Parent = loader, Position = UDim2.fromOffset(30, 238), Size = UDim2.new(1, -60, 0, 1),
+            BackgroundColor3 = Theme.Border, BorderSizePixel = 0, ZIndex = 2,
+        })
+        local tip = text({
+            Parent = loader, Position = UDim2.fromOffset(30, 246), Size = UDim2.new(1, -60, 0, 16),
+            TextXAlignment = Enum.TextXAlignment.Center, Text = tips[1] or "", TextColor3 = Theme.TabIdle,
+            FontFace = FONT_SEMI, TextSize = 11, ZIndex = 2,
         })
 
         local function finishStep(i)
@@ -1604,12 +1621,43 @@ function Ducky:CreateWindow(opts)
             tween(st.check, { Size = UDim2.fromOffset(8, 8) }, 0.25, Enum.EasingStyle.Back)
         end
 
+        -- rotating tips
         task.spawn(function()
-            tween(backdrop, { BackgroundTransparency = 0.35 }, 0.4)
-            if Window._blur then tween(Window._blur, { Size = 14 }, 0.5) end
+            local n = 1
+            while loader.Parent do
+                task.wait(1.3)
+                if not loader.Parent then break end
+                n = n % #tips + 1
+                tween(tip, { TextTransparency = 1 }, 0.15)
+                task.wait(0.16)
+                tip.Text = tips[n]
+                tween(tip, { TextTransparency = 0 }, 0.2)
+            end
+        end)
+
+        task.spawn(function()
+            tween(backdrop, { BackgroundTransparency = 0.3 }, 0.4)
+            if Window._blur then tween(Window._blur, { Size = 16 }, 0.5) end
             tween(loader, { GroupTransparency = 0 }, 0.35)
             tween(lscale, { Scale = 1 }, 0.5, Enum.EasingStyle.Back)
-            tween(lunder, { Size = UDim2.fromOffset(140, 2) }, 1, Enum.EasingStyle.Quint)
+
+            -- letters drop in
+            task.wait(0.25)
+            for i, l in ipairs(letters) do
+                tween(l, { TextTransparency = 0, Position = UDim2.fromOffset(0, 0) }, 0.45, Enum.EasingStyle.Back)
+                task.wait(0.05)
+            end
+            tween(lunder, { Size = UDim2.fromOffset(150, 2) }, 0.9, Enum.EasingStyle.Quint)
+            tween(subtitle, { TextTransparency = 0 }, 0.5)
+
+            -- one wave of white through the letters
+            task.delay(0.3, function()
+                for _, l in ipairs(letters) do
+                    tween(l, { TextColor3 = Color3.new(1, 1, 1) }, 0.12)
+                    task.delay(0.14, function() tween(l, { TextColor3 = Theme.Accent }, 0.25) end)
+                    task.wait(0.045)
+                end
+            end)
 
             local start = os.clock()
             while true do
@@ -1630,7 +1678,7 @@ function Ducky:CreateWindow(opts)
             for i = 1, nSteps do finishStep(i) end
             status.Text = "Ready"
             percent.Text = "100%"
-            task.wait(0.35)
+            task.wait(0.4)
 
             tween(backdrop, { BackgroundTransparency = 1 }, 0.35)
             if Window._blur then tween(Window._blur, { Size = 0 }, 0.35) end
