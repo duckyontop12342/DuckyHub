@@ -1518,56 +1518,166 @@ function Ducky:CreateWindow(opts)
         tb.MouseButton1Click:Connect(function() Window:Toggle() end)
     end
 
-    -- loading screen: just a title, a subtitle and a thin bar ----------------------------
+    -- loading screen: dot spinner, progress bar with %, "did you know" pill (matches the window style)
     if opts.LoadingEnabled == false then
         task.defer(show)
     else
-        local duration = opts.LoadingTime or 2
+        local duration = opts.LoadingTime or 2.6
+        local tips = opts.LoadingTips or {
+            "Press " .. keybind.Name .. " to show or hide the menu.",
+            "Drag the logo to move the window.",
+            "Settings can save automatically.",
+        }
+        local backdrop, card
 
-        local backdrop = create("Frame", {
-            Parent = gui, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
-            BackgroundTransparency = 1, BorderSizePixel = 0, Active = true,
-        })
+        local ok = pcall(function()
+            backdrop = create("Frame", {
+                Parent = gui, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+                BackgroundTransparency = 1, BorderSizePixel = 0, Active = true,
+            })
+            card = create("CanvasGroup", {
+                Parent = gui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+                Size = UDim2.fromOffset(340, 262), BackgroundColor3 = Theme.Window, BorderSizePixel = 0,
+                GroupTransparency = 1,
+            }, { corner(10), stroke(Theme.Border, 1) })
+            local lscale = create("UIScale", { Parent = card, Scale = 0.94 })
 
-        local holder = create("CanvasGroup", {
-            Parent = gui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-            Size = UDim2.fromOffset(300, 120), BackgroundTransparency = 1, GroupTransparency = 1,
-        })
+            -- dot spinner: a bright head with a fading tail going round
+            local dots = {}
+            for i = 1, 12 do
+                local a = (i - 1) / 12 * math.pi * 2 - math.pi / 2
+                dots[i] = create("Frame", {
+                    Parent = card, AnchorPoint = Vector2.new(0.5, 0.5), BorderSizePixel = 0,
+                    Position = UDim2.new(0.5, math.cos(a) * 20, 0, 44 + math.sin(a) * 20),
+                    Size = UDim2.fromOffset(6, 6), BackgroundColor3 = Theme.Accent,
+                }, { corner(6) })
+            end
 
-        local ltitle = text({
-            Parent = holder, Position = UDim2.fromOffset(0, 8), Size = UDim2.new(1, 0, 0, 40),
-            TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingTitle or name,
-            TextScaled = true, FontFace = FONT_ITAL,
-        })
-        create("UITextSizeConstraint", { Parent = ltitle, MaxTextSize = 34, MinTextSize = 12 })
-        create("UIGradient", { Parent = ltitle, Rotation = 90, Color = ColorSequence.new(Theme.Accent, Theme.AccentDim) })
+            local ltitle = text({
+                Parent = card, Position = UDim2.fromOffset(20, 82), Size = UDim2.new(1, -40, 0, 30),
+                TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingTitle or name,
+                TextScaled = true, FontFace = FONT_ITAL,
+            })
+            create("UITextSizeConstraint", { Parent = ltitle, MaxTextSize = 24, MinTextSize = 12 })
+            create("UIGradient", { Parent = ltitle, Rotation = 90, Color = ColorSequence.new(Theme.Accent, Theme.AccentDim) })
 
-        text({
-            Parent = holder, Position = UDim2.fromOffset(0, 52), Size = UDim2.new(1, 0, 0, 16),
-            TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingSubtitle or "Loading",
-            TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 12,
-        })
+            local lunder = create("Frame", {
+                Parent = card, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 114),
+                Size = UDim2.fromOffset(0, 2), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+            }, {
+                create("UIGradient", {
+                    Color = ColorSequence.new(Theme.Accent, Theme.AccentDim),
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.5, 0.35), NumberSequenceKeypoint.new(1, 1),
+                    }),
+                }),
+            })
 
-        local barTrack = create("Frame", {
-            Parent = holder, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 90),
-            Size = UDim2.fromOffset(180, 3), BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
-        }, { corner(2) })
-        local barFill = create("Frame", {
-            Parent = barTrack, Size = UDim2.fromScale(0, 1), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0,
-        }, { corner(2) })
+            text({
+                Parent = card, Position = UDim2.fromOffset(20, 122), Size = UDim2.new(1, -40, 0, 16),
+                TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingSubtitle or "Loading interface",
+                TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 12,
+            })
+
+            local barTrack = create("Frame", {
+                Parent = card, Position = UDim2.new(0, 30, 0, 154), Size = UDim2.new(1, -60, 0, 6),
+                BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
+            }, { corner(3) })
+            local barFill = create("Frame", {
+                Parent = barTrack, Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+            }, {
+                corner(3),
+                create("UIGradient", { Color = ColorSequence.new(Theme.AccentDim, Theme.Accent) }),
+            })
+            local status = text({
+                Parent = card, Position = UDim2.fromOffset(30, 166), Size = UDim2.new(0.6, 0, 0, 14),
+                Text = "Starting...", TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 11,
+            })
+            local pct = text({
+                Parent = card, Position = UDim2.new(1, -80, 0, 164), Size = UDim2.fromOffset(50, 16),
+                TextXAlignment = Enum.TextXAlignment.Right, Text = "0%", FontFace = FONT_BOLD, TextSize = 13,
+                TextColor3 = Theme.Text,
+            })
+
+            -- "did you know" pill
+            local pill = create("Frame", {
+                Parent = card, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 198),
+                Size = UDim2.fromOffset(0, 30), AutomaticSize = Enum.AutomaticSize.X,
+                BackgroundColor3 = Color3.fromRGB(26, 26, 26), BorderSizePixel = 0,
+            }, {
+                corner(15), stroke(Theme.Border, 1),
+                padding(0, 14, 0, 5),
+                create("UIListLayout", {
+                    FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center,
+                    Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder,
+                }),
+            })
+            local bulb = create("Frame", {
+                Parent = pill, Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Theme.Accent,
+                BorderSizePixel = 0, LayoutOrder = 1,
+            }, { corner(10) })
+            icon({
+                Parent = bulb, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+                Size = UDim2.fromOffset(12, 12),
+            }, "lightbulb", Theme.OnAccent)
+            text({
+                Parent = pill, Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X,
+                Text = "DID YOU KNOW?", FontFace = FONT_BOLD, TextSize = 11, LayoutOrder = 2,
+            })
+            local tip = text({
+                Parent = card, Position = UDim2.fromOffset(20, 234), Size = UDim2.new(1, -40, 0, 16),
+                TextXAlignment = Enum.TextXAlignment.Center, Text = tips[1] or "", TextColor3 = Theme.Desc,
+                FontFace = FONT_SEMI, TextSize = 11,
+            })
+
+            tween(backdrop, { BackgroundTransparency = 0.5 }, 0.3)
+            tween(card, { GroupTransparency = 0 }, 0.3)
+            tween(lscale, { Scale = 1 }, 0.4, Enum.EasingStyle.Back)
+            tween(lunder, { Size = UDim2.fromOffset(110, 2) }, 0.8, Enum.EasingStyle.Quint)
+
+            task.spawn(function()
+                local start, tipN, lastTip = os.clock(), 1, os.clock()
+                while card.Parent do
+                    local now = os.clock()
+                    local t = math.clamp((now - start) / duration, 0, 1)
+                    local p = t < 0.5 and 2 * t * t or 1 - (-2 * t + 2) ^ 2 / 2
+                    barFill.Size = UDim2.fromScale(p, 1)
+                    pct.Text = string.format("%d%%", math.floor(p * 100 + 0.5))
+                    status.Text = p < 0.34 and "Loading icons..." or p < 0.7 and "Building interface..." or p < 1 and "Almost ready..." or "Ready"
+
+                    for i, d in ipairs(dots) do
+                        local phase = (now * 1.1 - (i - 1) / 12) % 1
+                        local k = 1 - phase
+                        local sz = 3 + 6 * k
+                        d.Size = UDim2.fromOffset(sz, sz)
+                        d.BackgroundTransparency = 0.1 + 0.8 * phase
+                    end
+
+                    if #tips > 1 and now - lastTip > 1.3 then
+                        lastTip = now
+                        tipN = tipN % #tips + 1
+                        tip.Text = tips[tipN]
+                    end
+                    if t >= 1 then break end
+                    task.wait()
+                end
+            end)
+        end)
 
         task.spawn(function()
-            tween(backdrop, { BackgroundTransparency = 0.45 }, 0.35)
-            tween(holder, { GroupTransparency = 0 }, 0.35)
-            tween(barFill, { Size = UDim2.fromScale(1, 1) }, duration, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
-            task.wait(duration + 0.2)
-            tween(holder, { GroupTransparency = 1 }, 0.25)
-            tween(backdrop, { BackgroundTransparency = 1 }, 0.3)
+            task.wait(duration + 0.4)
+            pcall(function()
+                if card then tween(card, { GroupTransparency = 1 }, 0.25) end
+                if backdrop then tween(backdrop, { BackgroundTransparency = 1 }, 0.3) end
+            end)
             task.wait(0.32)
-            holder:Destroy()
-            backdrop:Destroy()
-            show()
+            pcall(function()
+                if card then card:Destroy() end
+                if backdrop then backdrop:Destroy() end
+            end)
+            show() -- always runs, even if the loader failed to build
         end)
+        if not ok then warn("[Ducky] loading screen failed to build, continuing without it") end
     end
 
     return Window
