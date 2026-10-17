@@ -881,17 +881,17 @@ function Ducky:CreateWindow(opts)
             return Slider
         end
 
-        -- dropdown. Single = field that opens a list. Multi = always-open list (like the reference)
+        -- dropdown: a field that opens a list (multi stays open while you tick items)
         function Tab:CreateDropdown(o)
             local c = card(o, 0)
             local multi = (o.MultipleOptions or o.Multi) and true or false
             local options = {}
             for _, v in ipairs(o.Options or {}) do table.insert(options, tostring(v)) end
 
-            local ROW = multi and 31 or 28
+            local ROW = 28
             local MAXROWS = o.MaxRows or 6
             local selected = {}
-            local Dropdown = { Type = "Dropdown", CurrentOption = {}, Open = multi, Flag = o.Flag }
+            local Dropdown = { Type = "Dropdown", CurrentOption = {}, Open = false, Flag = o.Flag }
 
             local wrap = create("Frame", {
                 Parent = c, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
@@ -899,7 +899,7 @@ function Ducky:CreateWindow(opts)
             }, { create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }) })
 
             local box, shown, arrow
-            if not multi then
+            do
                 box = create("TextButton", {
                     Parent = wrap, Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Theme.Field,
                     BorderSizePixel = 0, Text = "", AutoButtonColor = false, LayoutOrder = 0,
@@ -916,14 +916,14 @@ function Ducky:CreateWindow(opts)
 
             local function visRows() return math.max(1, math.min(#options, MAXROWS)) end
             local function panelH() return visRows() * ROW + 6 end
-            local function listH() return panelH() + (multi and 0 or 5) end
+            local function listH() return panelH() + 5 end
 
             local list = create("Frame", {
-                Parent = wrap, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, multi and listH() or 0),
-                ClipsDescendants = true, LayoutOrder = 1, Visible = multi,
+                Parent = wrap, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
+                ClipsDescendants = true, LayoutOrder = 1, Visible = false,
             })
             local panel = create("Frame", {
-                Parent = list, Position = UDim2.fromOffset(0, multi and 0 or 5), Size = UDim2.new(1, 0, 0, panelH()),
+                Parent = list, Position = UDim2.fromOffset(0, 5), Size = UDim2.new(1, 0, 0, panelH()),
                 BackgroundColor3 = Theme.Field, BorderSizePixel = 0,
             }, { corner(5) })
             local optScroll = create("ScrollingFrame", {
@@ -947,6 +947,7 @@ function Ducky:CreateWindow(opts)
                     local on = selected[opt] == true
                     tween(r.btn, { BackgroundTransparency = on and 0.92 or 1 }, 0.15)
                     tween(r.label, { TextColor3 = on and Theme.Accent or Theme.Desc })
+                    tween(r.check, { ImageTransparency = on and 0 or 1 }, 0.15)
                     tween(r.mark, { BackgroundTransparency = on and 0 or 1, Size = UDim2.fromOffset(2, on and 14 or 4) }, 0.2, Enum.EasingStyle.Back)
                 end
                 if shown then
@@ -954,7 +955,7 @@ function Ducky:CreateWindow(opts)
                         shown.Text = "Select..."
                         tween(shown, { TextColor3 = Theme.Desc })
                     else
-                        shown.Text = table.concat(names, ", ")
+                        shown.Text = (multi and #names > 2) and (#names .. " selected") or table.concat(names, ", ")
                         tween(shown, { TextColor3 = Theme.RowText })
                     end
                 end
@@ -967,7 +968,6 @@ function Ducky:CreateWindow(opts)
             end
 
             local function setOpen(v)
-                if multi then return end
                 Dropdown.Open = v
                 tween(arrow, { Rotation = v and 180 or 0, ImageColor3 = v and Theme.Accent or Theme.Desc }, 0.25, Enum.EasingStyle.Quint)
                 if v then
@@ -997,10 +997,14 @@ function Ducky:CreateWindow(opts)
                         Size = UDim2.fromOffset(2, 4), BackgroundColor3 = Theme.Accent, BackgroundTransparency = 1, BorderSizePixel = 0,
                     }, { corner(1) })
                     local label = text({
-                        Parent = btn, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -24, 1, 0),
+                        Parent = btn, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -38, 1, 0),
                         Text = opt, FontFace = FONT_SEMI, TextSize = 11, TextColor3 = Theme.Desc,
                         TextTruncate = Enum.TextTruncate.AtEnd,
                     })
+                    local ck = icon({
+                        Parent = btn, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0),
+                        Size = UDim2.fromOffset(12, 12), ImageTransparency = 1,
+                    }, "check", Theme.Accent)
                     btn.MouseEnter:Connect(function()
                         if not selected[opt] then
                             tween(btn, { BackgroundTransparency = 0.96 }, 0.1)
@@ -1023,7 +1027,7 @@ function Ducky:CreateWindow(opts)
                         end
                         commit()
                     end)
-                    rows[opt] = { btn = btn, label = label, mark = mark }
+                    rows[opt] = { btn = btn, label = label, mark = mark, check = ck }
                 end
                 visuals()
             end
@@ -1472,304 +1476,54 @@ function Ducky:CreateWindow(opts)
         tb.MouseButton1Click:Connect(function() Window:Toggle() end)
     end
 
-    -- loading screen ---------------------------------------------------------------------
+    -- loading screen: just a title, a subtitle and a thin bar ----------------------------
     if opts.LoadingEnabled == false then
         task.defer(show)
     else
-        local duration  = opts.LoadingTime or 3.2
-        local stepNames = opts.LoadingSteps or { "Icons", "Interface", "Config" }
-        local nSteps    = #stepNames
-        local tips      = opts.LoadingTips or {
-            "Press " .. keybind.Name .. " to show or hide the menu",
-            "Drag the logo to move the window",
-            "Your settings can save automatically",
-        }
-        local title     = tostring(opts.LoadingTitle or name)
+        local duration = opts.LoadingTime or 2
 
         local backdrop = create("Frame", {
             Parent = gui, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
             BackgroundTransparency = 1, BorderSizePixel = 0, Active = true,
         })
-        pcall(function()
-            local blur = Instance.new("BlurEffect")
-            blur.Size = 0
-            blur.Parent = game:GetService("Lighting")
-            Window._blur = blur
-        end)
 
-        local loader = create("CanvasGroup", {
+        local holder = create("CanvasGroup", {
             Parent = gui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-            Size = UDim2.fromOffset(400, 276), BackgroundColor3 = Theme.Window, BorderSizePixel = 0,
-            GroupTransparency = 1,
-        }, { corner(14), stroke(Theme.Border, 1) })
-        local lscale = create("UIScale", { Parent = loader, Scale = 0.85 })
-
-        -- soft yellow glow at the top of the card
-        create("Frame", {
-            Parent = loader, Size = UDim2.new(1, 0, 0, 110), BackgroundColor3 = Theme.Accent,
-            BackgroundTransparency = 0, BorderSizePixel = 0, ZIndex = 0,
-        }, {
-            create("UIGradient", {
-                Rotation = 90,
-                Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(1, 1) }),
-            }),
+            Size = UDim2.fromOffset(300, 120), BackgroundTransparency = 1, GroupTransparency = 1,
         })
 
-        -- floating particles
-        local rng = Random.new()
-        for _ = 1, 16 do
-            local size = rng:NextInteger(2, 4)
-            local dot = create("Frame", {
-                Parent = loader, Size = UDim2.fromOffset(size, size), BorderSizePixel = 0, ZIndex = 1,
-                BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0.55,
-                Position = UDim2.new(rng:NextNumber(0.03, 0.97), 0, 0, rng:NextInteger(120, 280)),
-            }, { corner(size) })
-            task.spawn(function()
-                task.wait(rng:NextNumber(0, 2))
-                while dot.Parent do
-                    local t = rng:NextNumber(2.5, 5)
-                    dot.Position = UDim2.new(rng:NextNumber(0.03, 0.97), 0, 0, 290)
-                    dot.BackgroundTransparency = 1
-                    tween(dot, { BackgroundTransparency = 0.5 }, t * 0.3, Enum.EasingStyle.Sine)
-                    tween(dot, { Position = UDim2.new(dot.Position.X.Scale, 0, 0, rng:NextInteger(-10, 60)) }, t, Enum.EasingStyle.Linear)
-                    task.wait(t * 0.7)
-                    if dot.Parent then tween(dot, { BackgroundTransparency = 1 }, t * 0.3) end
-                    task.wait(t * 0.3)
-                end
-            end)
-        end
-
-        -- sweeping highlight across the top edge
-        local sweep = create("Frame", {
-            Parent = loader, Position = UDim2.new(0, -140, 0, 0), Size = UDim2.fromOffset(140, 2),
-            BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, ZIndex = 3,
-        }, {
-            create("UIGradient", {
-                Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1),
-                }),
-            }),
+        local ltitle = text({
+            Parent = holder, Position = UDim2.fromOffset(0, 8), Size = UDim2.new(1, 0, 0, 40),
+            TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingTitle or name,
+            TextScaled = true, FontFace = FONT_ITAL,
         })
-        TweenService:Create(sweep, TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, -1, false, 0.4), {
-            Position = UDim2.new(1, 0, 0, 0),
-        }):Play()
+        create("UITextSizeConstraint", { Parent = ltitle, MaxTextSize = 34, MinTextSize = 12 })
+        create("UIGradient", { Parent = ltitle, Rotation = 90, Color = ColorSequence.new(Theme.Accent, Theme.AccentDim) })
 
-        -- logo ring: dim base ring + a bright arc that spins around it
-        local ring = create("Frame", {
-            Parent = loader, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 22),
-            Size = UDim2.fromOffset(60, 60), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 2,
-        }, { corner(30), stroke(Theme.Border, 2) })
-        local arc = create("Frame", {
-            Parent = ring, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
-        }, { corner(30) })
-        local arcStroke = create("UIStroke", {
-            Parent = arc, Color = Color3.new(1, 1, 1), Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        text({
+            Parent = holder, Position = UDim2.fromOffset(0, 52), Size = UDim2.new(1, 0, 0, 16),
+            TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingSubtitle or "Loading",
+            TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 12,
         })
-        local arcGrad = create("UIGradient", {
-            Parent = arcStroke,
-            Color = ColorSequence.new(Theme.Accent, Theme.AccentDim),
-            Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.45, 0.2),
-                NumberSequenceKeypoint.new(0.7, 1), NumberSequenceKeypoint.new(1, 1),
-            }),
-        })
-        TweenService:Create(arcGrad, TweenInfo.new(1.1, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1), { Rotation = 360 }):Play()
-
-        local logoIcon = icon({
-            Parent = ring, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-            Size = UDim2.fromOffset(28, 28), ZIndex = 3,
-        }, opts.LoadingIcon or "bird", Theme.Accent)
-        TweenService:Create(logoIcon, TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-            Size = UDim2.fromOffset(23, 23),
-        }):Play()
-
-        -- title: letters drop in one by one, then a wave of white runs through them
-        local letterRow = create("Frame", {
-            Parent = loader, BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 92), Size = UDim2.new(1, 0, 0, 36),
-            ZIndex = 2,
-        }, {
-            create("UIListLayout", {
-                FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
-                VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder,
-            }),
-        })
-        local letters = {}
-        for i = 1, #title do
-            local ch = title:sub(i, i)
-            local holder = create("Frame", {
-                Parent = letterRow, BackgroundTransparency = 1, Size = UDim2.fromOffset(0, 36),
-                AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = i, ClipsDescendants = false,
-            })
-            local l = text({
-                Parent = holder, Position = UDim2.fromOffset(0, 14), Size = UDim2.fromOffset(0, 36),
-                AutomaticSize = Enum.AutomaticSize.X, Text = ch == " " and "\u{00A0}" or ch, TextSize = 30,
-                FontFace = FONT_ITAL, TextColor3 = Theme.Accent, TextTransparency = 1, ZIndex = 2,
-            })
-            letters[i] = l
-        end
-
-        local lunder = create("Frame", {
-            Parent = loader, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 132),
-            Size = UDim2.fromOffset(0, 2), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 2,
-        }, {
-            create("UIGradient", {
-                Color = ColorSequence.new(Theme.Accent, Theme.AccentDim),
-                Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.5, 0.35), NumberSequenceKeypoint.new(1, 1),
-                }),
-            }),
-        })
-
-        local subtitle = text({
-            Parent = loader, Position = UDim2.fromOffset(20, 140), Size = UDim2.new(1, -40, 0, 16),
-            TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingSubtitle or "Preparing your interface",
-            TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 12, TextTransparency = 1, ZIndex = 2,
-        })
-
-        -- step checklist
-        local steps = {}
-        for i, nm in ipairs(stepNames) do
-            local cell = create("Frame", {
-                Parent = loader, BackgroundTransparency = 1, ZIndex = 2,
-                Position = UDim2.new((i - 1) / nSteps, 0, 0, 170), Size = UDim2.new(1 / nSteps, 0, 0, 16),
-            }, {
-                create("UIListLayout", {
-                    FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center,
-                    VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
-                }),
-            })
-            local dot = create("Frame", {
-                Parent = cell, Size = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Control,
-                BorderSizePixel = 0, LayoutOrder = 1, ZIndex = 2,
-            }, { corner(6) })
-            local check = icon({
-                Parent = dot, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-                Size = UDim2.fromOffset(0, 0), ImageTransparency = 1, ZIndex = 3,
-            }, "check", Theme.OnAccent)
-            local lab = text({
-                Parent = cell, Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X,
-                Text = nm, TextColor3 = Theme.TabIdle, FontFace = FONT_SEMI, TextSize = 11, LayoutOrder = 2, ZIndex = 2,
-            })
-            steps[i] = { dot = dot, check = check, label = lab, name = nm, done = false }
-        end
 
         local barTrack = create("Frame", {
-            Parent = loader, Position = UDim2.new(0, 30, 0, 202), Size = UDim2.new(1, -60, 0, 5),
-            BackgroundColor3 = Theme.Track, BorderSizePixel = 0, ZIndex = 2,
-        }, { corner(3) })
+            Parent = holder, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 90),
+            Size = UDim2.fromOffset(180, 3), BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
+        }, { corner(2) })
         local barFill = create("Frame", {
-            Parent = barTrack, Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 3,
-        }, {
-            corner(3),
-            create("UIGradient", { Color = ColorSequence.new(Theme.AccentDim, Theme.Accent) }),
-        })
-        create("Frame", { -- glowing head
-            Parent = barFill, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
-            Size = UDim2.fromOffset(40, 15), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, ZIndex = 2,
-        }, {
-            corner(7),
-            create("UIGradient", {
-                Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.55) }),
-            }),
-        })
-
-        local status = text({
-            Parent = loader, Position = UDim2.fromOffset(30, 214), Size = UDim2.new(0.7, 0, 0, 14),
-            Text = "Starting...", TextColor3 = Theme.Desc, FontFace = FONT_REG, TextSize = 11, ZIndex = 2,
-        })
-        local percent = text({
-            Parent = loader, Position = UDim2.new(1, -80, 0, 214), Size = UDim2.fromOffset(50, 14),
-            TextXAlignment = Enum.TextXAlignment.Right, Text = "0%", FontFace = FONT_BOLD, TextSize = 11,
-            TextColor3 = Theme.Accent, ZIndex = 2,
-        })
-
-        create("Frame", {
-            Parent = loader, Position = UDim2.fromOffset(30, 238), Size = UDim2.new(1, -60, 0, 1),
-            BackgroundColor3 = Theme.Border, BorderSizePixel = 0, ZIndex = 2,
-        })
-        local tip = text({
-            Parent = loader, Position = UDim2.fromOffset(30, 246), Size = UDim2.new(1, -60, 0, 16),
-            TextXAlignment = Enum.TextXAlignment.Center, Text = tips[1] or "", TextColor3 = Theme.TabIdle,
-            FontFace = FONT_SEMI, TextSize = 11, ZIndex = 2,
-        })
-
-        local function finishStep(i)
-            local st = steps[i]
-            if not st or st.done then return end
-            st.done = true
-            tween(st.dot, { BackgroundColor3 = Theme.Accent }, 0.2)
-            tween(st.label, { TextColor3 = Theme.Text }, 0.2)
-            st.check.ImageTransparency = 0
-            tween(st.check, { Size = UDim2.fromOffset(8, 8) }, 0.25, Enum.EasingStyle.Back)
-        end
-
-        -- rotating tips
-        task.spawn(function()
-            local n = 1
-            while loader.Parent do
-                task.wait(1.3)
-                if not loader.Parent then break end
-                n = n % #tips + 1
-                tween(tip, { TextTransparency = 1 }, 0.15)
-                task.wait(0.16)
-                tip.Text = tips[n]
-                tween(tip, { TextTransparency = 0 }, 0.2)
-            end
-        end)
+            Parent = barTrack, Size = UDim2.fromScale(0, 1), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0,
+        }, { corner(2) })
 
         task.spawn(function()
-            tween(backdrop, { BackgroundTransparency = 0.3 }, 0.4)
-            if Window._blur then tween(Window._blur, { Size = 16 }, 0.5) end
-            tween(loader, { GroupTransparency = 0 }, 0.35)
-            tween(lscale, { Scale = 1 }, 0.5, Enum.EasingStyle.Back)
-
-            -- letters drop in
-            task.wait(0.25)
-            for i, l in ipairs(letters) do
-                tween(l, { TextTransparency = 0, Position = UDim2.fromOffset(0, 0) }, 0.45, Enum.EasingStyle.Back)
-                task.wait(0.05)
-            end
-            tween(lunder, { Size = UDim2.fromOffset(150, 2) }, 0.9, Enum.EasingStyle.Quint)
-            tween(subtitle, { TextTransparency = 0 }, 0.5)
-
-            -- one wave of white through the letters
-            task.delay(0.3, function()
-                for _, l in ipairs(letters) do
-                    tween(l, { TextColor3 = Color3.new(1, 1, 1) }, 0.12)
-                    task.delay(0.14, function() tween(l, { TextColor3 = Theme.Accent }, 0.25) end)
-                    task.wait(0.045)
-                end
-            end)
-
-            local start = os.clock()
-            while true do
-                local t = math.clamp((os.clock() - start) / duration, 0, 1)
-                local p = t < 0.5 and 2 * t * t or 1 - (-2 * t + 2) ^ 2 / 2 -- ease in-out
-                barFill.Size = UDim2.fromScale(p, 1)
-                percent.Text = string.format("%d%%", math.floor(p * 100 + 0.5))
-
-                local idx = math.min(nSteps, math.floor(p * nSteps) + 1)
-                status.Text = "Loading " .. string.lower(steps[idx].name) .. "..."
-                for i = 1, nSteps do
-                    if p >= i / nSteps - 0.001 then finishStep(i) end
-                end
-                if t >= 1 then break end
-                task.wait()
-            end
-
-            for i = 1, nSteps do finishStep(i) end
-            status.Text = "Ready"
-            percent.Text = "100%"
-            task.wait(0.4)
-
-            tween(backdrop, { BackgroundTransparency = 1 }, 0.35)
-            if Window._blur then tween(Window._blur, { Size = 0 }, 0.35) end
-            tween(loader, { GroupTransparency = 1 }, 0.3)
-            tween(lscale, { Scale = 1.08 }, 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-            task.wait(0.34)
-            loader:Destroy()
+            tween(backdrop, { BackgroundTransparency = 0.45 }, 0.35)
+            tween(holder, { GroupTransparency = 0 }, 0.35)
+            tween(barFill, { Size = UDim2.fromScale(1, 1) }, duration, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+            task.wait(duration + 0.2)
+            tween(holder, { GroupTransparency = 1 }, 0.25)
+            tween(backdrop, { BackgroundTransparency = 1 }, 0.3)
+            task.wait(0.32)
+            holder:Destroy()
             backdrop:Destroy()
-            if Window._blur then Window._blur:Destroy(); Window._blur = nil end
             show()
         end)
     end
