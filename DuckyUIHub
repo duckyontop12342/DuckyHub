@@ -224,7 +224,7 @@ end
 
 -- library -----------------------------------------------------------------
 
-local Ducky = { Version = "2.0.0", Theme = Theme, Flags = {} }
+local Ducky = { Version = "2.3.0", Theme = Theme, Flags = {} }
 
 -- Provide your own Lucide-compatible module: GetAsset(name, size) -> { Url, ImageRectSize, ImageRectOffset }
 function Ducky:SetLucide(module)
@@ -244,7 +244,7 @@ local function ensureNotifHolder()
     })
     notifHolder = create("Frame", {
         Parent = notifGui, BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 1),
-        Position = UDim2.new(1, -16, 1, -16), Size = UDim2.new(0, 290, 1, -32),
+        Position = UDim2.new(1, -16, 1, -16), Size = UDim2.new(0, 340, 1, -32),
     }, {
         create("UIListLayout", {
             SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8),
@@ -254,67 +254,106 @@ local function ensureNotifHolder()
     return notifHolder
 end
 
--- Ducky:Notify({ Title, Content, Duration = 5, Image = "bird" })
+-- Ducky:Notify({ Title, Content, Type = "info"|"success"|"error"|"warning", Duration = 5,
+--                Image = "bird" (overrides the type icon), Button = "Got it", Callback = function() end })
+local NOTIF = {
+    info    = { bg = Color3.fromRGB(26, 26, 28), edge = Color3.fromRGB(46, 46, 50) },
+    success = { bg = Color3.fromRGB(33, 44, 29), edge = Color3.fromRGB(56, 74, 48), color = Color3.fromRGB(150, 255, 70), mark = "check", dark = true },
+    error   = { bg = Color3.fromRGB(44, 25, 27), edge = Color3.fromRGB(74, 40, 42), color = Color3.fromRGB(255, 62, 55), mark = "x" },
+    warning = { bg = Color3.fromRGB(46, 39, 21), edge = Color3.fromRGB(78, 66, 32), color = Color3.fromRGB(255, 214, 10), mark = "triangle-alert", dark = true },
+}
+
 function Ducky:Notify(o)
     o = o or {}
     local holder = ensureNotifHolder()
     notifOrder += 1
     local duration = o.Duration or 5
-    local hasIcon = o.Image ~= nil
+    local kind = NOTIF[o.Type or "info"] or NOTIF.info
+    local hasButton = o.Button ~= nil
 
     local wrapper = create("Frame", {
         Parent = holder, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
         AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = notifOrder,
     })
     local card = create("Frame", {
-        Parent = wrapper, Position = UDim2.new(0, 320, 0, 0), Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Theme.Card, BorderSizePixel = 0,
-        ClipsDescendants = true,
-    }, { corner(8), stroke(Theme.Border, 1) })
-
-    create("Frame", { -- accent bar
-        Parent = card, Size = UDim2.new(0, 3, 1, 0), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0,
+        Parent = wrapper, Position = UDim2.new(0, 360, 0, 0), Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = kind.bg, BorderSizePixel = 0,
+    }, {
+        corner(18), stroke(kind.edge, 1),
+        create("UIGradient", { -- faint diagonal sheen like the reference
+            Rotation = 25,
+            Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(225, 225, 225)),
+        }),
     })
-    if hasIcon then
-        icon({ Parent = card, Position = UDim2.fromOffset(16, 13), Size = UDim2.fromOffset(18, 18) }, o.Image, Theme.Accent)
+
+    -- icon
+    local iconHolder = create("Frame", {
+        Parent = card, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 18, 0.5, 0),
+        Size = UDim2.fromOffset(26, 26), BackgroundTransparency = 1,
+    })
+    if o.Image ~= nil then
+        icon({ Parent = iconHolder, Size = UDim2.fromScale(1, 1) }, o.Image, Theme.Text)
+    elseif kind.mark then
+        local disc = create("Frame", {
+            Parent = iconHolder, Size = UDim2.fromScale(1, 1), BackgroundColor3 = kind.color, BorderSizePixel = 0,
+        }, { corner(13) })
+        icon({
+            Parent = disc, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(14, 14),
+        }, kind.mark, kind.dark and Color3.fromRGB(20, 20, 20) or Color3.new(1, 1, 1))
+    else
+        icon({ Parent = iconHolder, Size = UDim2.fromScale(1, 1) }, "at-sign", Theme.Text)
     end
 
     local body = create("Frame", {
         Parent = card, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
     }, {
-        padding(12, 14, 14, hasIcon and 44 or 16),
-        create("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }),
+        padding(15, hasButton and 108 or 18, 15, 58),
+        create("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }),
     })
     text({
-        Parent = body, Size = UDim2.new(1, 0, 0, 16), Text = o.Title or "Notification",
-        FontFace = FONT_BOLD, TextSize = 13, TextTruncate = Enum.TextTruncate.AtEnd, LayoutOrder = 0,
+        Parent = body, Size = UDim2.new(1, 0, 0, 18), Text = o.Title or "Notification",
+        FontFace = FONT_BOLD, TextSize = 14, TextTruncate = Enum.TextTruncate.AtEnd, LayoutOrder = 0,
     })
     if o.Content and o.Content ~= "" then
         text({
             Parent = body, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-            Text = o.Content, TextColor3 = Theme.Desc, TextSize = 12, TextWrapped = true,
-            TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = 1,
+            Text = o.Content, TextColor3 = Color3.fromRGB(150, 150, 150), FontFace = FONT_SEMI, TextSize = 12,
+            TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = 1,
         })
     end
-
-    local progress = create("Frame", {
-        Parent = card, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0),
-        Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0,
-    })
 
     local closed = false
     local function close()
         if closed then return end
         closed = true
-        tween(card, { Position = UDim2.new(0, 320, 0, 0) }, 0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+        tween(card, { Position = UDim2.new(0, 360, 0, 0) }, 0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
         task.delay(0.32, function() wrapper:Destroy() end)
     end
 
-    local hit = create("TextButton", { Parent = card, BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", ZIndex = 5 })
-    hit.MouseButton1Click:Connect(close)
+    if hasButton then
+        local btn = create("TextButton", {
+            Parent = card, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0),
+            Size = UDim2.fromOffset(0, 32), AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.9, BorderSizePixel = 0,
+            Text = "", AutoButtonColor = false,
+        }, { corner(10), padding(0, 14, 0, 14) })
+        text({
+            Parent = btn, Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X,
+            Text = tostring(o.Button), FontFace = FONT_SEMI, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
+        })
+        btn.MouseEnter:Connect(function() tween(btn, { BackgroundTransparency = 0.82 }) end)
+        btn.MouseLeave:Connect(function() tween(btn, { BackgroundTransparency = 0.9 }) end)
+        btn.MouseButton1Click:Connect(function()
+            if o.Callback then task.spawn(o.Callback) end
+            close()
+        end)
+    else
+        local hit = create("TextButton", { Parent = card, BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", ZIndex = 5 })
+        hit.MouseButton1Click:Connect(close)
+    end
 
-    tween(card, { Position = UDim2.new(0, 0, 0, 0) }, 0.4, Enum.EasingStyle.Quint)
-    tween(progress, { Size = UDim2.new(0, 0, 0, 2) }, duration, Enum.EasingStyle.Linear)
+    tween(card, { Position = UDim2.new(0, 0, 0, 0) }, 0.45, Enum.EasingStyle.Quint)
     task.delay(duration, close)
 
     return { Close = close }
@@ -1069,6 +1108,9 @@ function Ducky:CreateWindow(opts)
             end
 
             rebuild()
+            Dropdown.Open = false
+            list.Visible = false
+            list.Size = UDim2.new(1, 0, 0, 0)
             register(o, Dropdown)
             Dropdown:Set(pick(o, "CurrentOption", "Default") or {}, true, true)
             return Dropdown
