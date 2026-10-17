@@ -36,6 +36,8 @@ local Theme = {
     CardHover = Color3.fromRGB(23, 23, 23),
     Field     = Color3.fromRGB(11, 11, 11),
     Track     = Color3.fromRGB(34, 34, 34),
+    Button    = Color3.fromRGB(28, 28, 28),
+    ButtonHover = Color3.fromRGB(37, 37, 37),
     Control   = Color3.fromRGB(52, 52, 52),
     Accent    = Color3.fromRGB(255, 214, 10),
     AccentDim = Color3.fromRGB(214, 160, 0),
@@ -167,6 +169,14 @@ local function icon(props, name, tint)
     return img
 end
 
+local GuiService = game:GetService("GuiService")
+
+-- input position in the same space as AbsolutePosition (our ScreenGuis ignore the top-bar inset)
+local function screenPos(input)
+    local inset = GuiService:GetGuiInset()
+    return Vector2.new(input.Position.X, input.Position.Y) + inset
+end
+
 local function inside(guiObj, pos)
     local a, s = guiObj.AbsolutePosition, guiObj.AbsoluteSize
     return pos.X >= a.X and pos.X <= a.X + s.X and pos.Y >= a.Y and pos.Y <= a.Y + s.Y
@@ -189,9 +199,9 @@ local function protectedParent()
 end
 
 local function columnWidth(cols)
-    if cols == 2 then return UDim2.new(0.5, -4, 0, 0) end
+    if cols == 2 then return UDim2.new(0.5, -5, 0, 0) end
     if cols == 3 then return UDim2.new(1 / 3, -6, 0, 0) end
-    if cols == 4 then return UDim2.new(0.25, -6, 0, 0) end
+    if cols == 4 then return UDim2.new(0.25, -7, 0, 0) end
     return UDim2.new(1, 0, 0, 0)
 end
 
@@ -312,6 +322,10 @@ end
 
 function Ducky:Destroy()
     if Ducky._window then Ducky._window:Destroy() end
+end
+
+function Ducky:SetAccent(c)
+    if Ducky._window then Ducky._window:SetAccent(c) end
 end
 
 function Ducky:LoadConfiguration()
@@ -552,6 +566,40 @@ function Ducky:CreateWindow(opts)
 
     function Window:Notify(o) return Ducky:Notify(o) end
 
+    -- recolours the whole UI: everything currently using the old accent switches to the new one
+    function Window:SetAccent(c)
+        local old, oldDim, oldOn = Theme.Accent, Theme.AccentDim, Theme.OnAccent
+        local hh, ss, vv = Color3.toHSV(c)
+        local dim = Color3.fromHSV(hh, ss, vv * 0.8)
+        local lum = 0.299 * c.R + 0.587 * c.G + 0.114 * c.B
+        local on = lum > 0.55 and Color3.fromRGB(10, 10, 10) or Color3.fromRGB(255, 255, 255)
+        Theme.Accent, Theme.AccentDim, Theme.OnAccent = c, dim, on
+        local function map(col)
+            if col == old then return c elseif col == oldDim then return dim elseif col == oldOn then return on end
+            return col
+        end
+        for _, d in ipairs(gui:GetDescendants()) do
+            pcall(function()
+                if d:IsA("UIGradient") then
+                    local kps = {}
+                    for _, kp in ipairs(d.Color.Keypoints) do
+                        table.insert(kps, ColorSequenceKeypoint.new(kp.Time, map(kp.Value)))
+                    end
+                    d.Color = ColorSequence.new(kps)
+                elseif d:IsA("UIStroke") then
+                    d.Color = map(d.Color)
+                elseif d:IsA("ScrollingFrame") then
+                    d.ScrollBarImageColor3 = map(d.ScrollBarImageColor3)
+                elseif d:IsA("ImageLabel") then
+                    d.ImageColor3 = map(d.ImageColor3)
+                elseif d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+                    d.TextColor3 = map(d.TextColor3)
+                end
+                if d:IsA("GuiObject") then d.BackgroundColor3 = map(d.BackgroundColor3) end
+            end)
+        end
+    end
+
     -- selection ---------------------------------------------------------------
     local function refreshTabs()
         for _, tab in ipairs(Window.Tabs) do
@@ -564,6 +612,7 @@ function Ducky:CreateWindow(opts)
     end
 
     local function select(tab)
+        if Window._closePicker then Window._closePicker() end
         local previous = currentPage
         local page = tab.Page
         currentTab, currentPage = tab, page
@@ -584,6 +633,9 @@ function Ducky:CreateWindow(opts)
     local function installItems(Tab, page)
         local scroll = page.Scroll
         local order = 0
+        scroll:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+            if Window._closePicker then Window._closePicker() end
+        end)
 
         local function register(o, ctrl)
             if o.Flag then Ducky.Flags[o.Flag] = ctrl end
@@ -599,14 +651,14 @@ function Ducky:CreateWindow(opts)
                 Size = columnWidth(cols), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = order,
             }, {
                 corner(6), padding(10, 12, 10, 12),
-                create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
+                create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
             })
             c.MouseEnter:Connect(function() tween(c, { BackgroundColor3 = Theme.CardHover }) end)
             c.MouseLeave:Connect(function() tween(c, { BackgroundColor3 = Theme.Card }) end)
 
             local head = create("Frame", {
                 Parent = c, BackgroundTransparency = 1,
-                Size = UDim2.new(1, 0, 0, o.Description and 31 or 16), LayoutOrder = 0,
+                Size = UDim2.new(1, 0, 0, o.Description and 29 or 16), LayoutOrder = 0,
             })
             local title = text({
                 Parent = head, Size = UDim2.new(1, -reserve, 0, 15), Text = o.Name or "Item",
@@ -615,7 +667,7 @@ function Ducky:CreateWindow(opts)
             local desc
             if o.Description then
                 desc = text({
-                    Parent = head, Position = UDim2.fromOffset(0, 17), Size = UDim2.new(1, -reserve, 0, 13),
+                    Parent = head, Position = UDim2.fromOffset(0, 16), Size = UDim2.new(1, -reserve, 0, 13),
                     Text = o.Description, TextColor3 = Theme.Desc, TextSize = 11, FontFace = FONT_SEMI, TextTruncate = Enum.TextTruncate.AtEnd,
                 })
             end
@@ -746,19 +798,13 @@ function Ducky:CreateWindow(opts)
         function Tab:CreateButton(o)
             local c, _, title = card(o, 0)
             local btn = create("TextButton", {
-                Parent = c, Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Theme.Field, BorderSizePixel = 0,
+                Parent = c, Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Theme.Button, BorderSizePixel = 0,
                 Text = o.ButtonText or "Run", FontFace = FONT_BOLD, TextSize = 12, TextColor3 = Theme.Text,
                 AutoButtonColor = false, LayoutOrder = 1,
             }, { corner(5) })
             local scaleObj = create("UIScale", { Parent = btn })
-            btn.MouseEnter:Connect(function()
-                tween(btn, { BackgroundColor3 = Theme.Track })
-                tween(btn, { TextColor3 = Theme.Accent })
-            end)
-            btn.MouseLeave:Connect(function()
-                tween(btn, { BackgroundColor3 = Theme.Field })
-                tween(btn, { TextColor3 = Theme.Text })
-            end)
+            btn.MouseEnter:Connect(function() tween(btn, { BackgroundColor3 = Theme.ButtonHover }) end)
+            btn.MouseLeave:Connect(function() tween(btn, { BackgroundColor3 = Theme.Button }) end)
             btn.MouseButton1Down:Connect(function() tween(scaleObj, { Scale = 0.97 }, 0.08) end)
             btn.MouseButton1Up:Connect(function() tween(scaleObj, { Scale = 1 }, 0.18, Enum.EasingStyle.Back) end)
             btn.MouseButton1Click:Connect(function() if o.Callback then task.spawn(o.Callback) end end)
@@ -1012,7 +1058,7 @@ function Ducky:CreateWindow(opts)
                 box.MouseLeave:Connect(function() tween(box, { BackgroundColor3 = Theme.Field }) end)
                 box.MouseButton1Click:Connect(function() setOpen(not Dropdown.Open) end)
                 connect(UserInputService.InputBegan, function(input)
-                    if Dropdown.Open and isPress(input) and not inside(wrap, UserInputService:GetMouseLocation()) then
+                    if Dropdown.Open and isPress(input) and not inside(wrap, screenPos(input)) then
                         setOpen(false)
                     end
                 end)
@@ -1028,22 +1074,28 @@ function Ducky:CreateWindow(opts)
         function Tab:CreateColorPicker(o)
             local _, head = card(o, 30)
             local h, s, v = Color3.toHSV(pick(o, "Color", "Default") or Theme.Accent)
+            local PW, PH = 190, 184
 
             local swatch = create("TextButton", {
                 Parent = head, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
-                Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Color3.fromHSV(h, s, v),
+                Size = UDim2.fromOffset(22, 22), BackgroundColor3 = Color3.fromHSV(h, s, v),
                 Text = "", AutoButtonColor = false,
-            }, { corner(10), stroke(Color3.fromRGB(80, 80, 80), 1) })
+            }, { corner(6) })
 
-            local popup = create("Frame", {
-                Parent = main, Visible = false, ZIndex = 20, Size = UDim2.fromOffset(170, 140),
-                BackgroundColor3 = Color3.fromRGB(22, 22, 22), BorderSizePixel = 0,
-            }, { corner(7), stroke(Theme.Border, 1) })
+            -- invisible full-window layer: any click that lands on it closes the popup (no coordinate maths)
+            local catcher = create("TextButton", {
+                Parent = main, BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "",
+                ZIndex = 19, Visible = false, AutoButtonColor = false,
+            })
+            local popup = create("TextButton", { -- a button so it swallows clicks instead of passing them through
+                Parent = main, Visible = false, ZIndex = 20, Size = UDim2.fromOffset(PW, PH), Text = "",
+                AutoButtonColor = false, BackgroundColor3 = Color3.fromRGB(22, 22, 22), BorderSizePixel = 0,
+            }, { corner(8) })
 
             local sv = create("Frame", {
-                Parent = popup, ZIndex = 21, Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(150, 100),
+                Parent = popup, ZIndex = 21, Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(PW - 20, 110),
                 BackgroundColor3 = Color3.fromHSV(h, 1, 1), BorderSizePixel = 0, ClipsDescendants = true,
-            }, { corner(4) })
+            }, { corner(5) })
             create("Frame", {
                 Parent = sv, ZIndex = 22, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
             }, { create("UIGradient", { Transparency = NumberSequence.new(0, 1) }) })
@@ -1051,12 +1103,12 @@ function Ducky:CreateWindow(opts)
                 Parent = sv, ZIndex = 23, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0,
             }, { create("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(1, 0) }) })
             local svCursor = create("Frame", {
-                Parent = sv, ZIndex = 25, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(9, 9),
+                Parent = sv, ZIndex = 25, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(10, 10),
                 BackgroundTransparency = 1, BorderSizePixel = 0,
             }, { corner(5), create("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 2 }) })
 
             local hue = create("Frame", {
-                Parent = popup, ZIndex = 21, Position = UDim2.fromOffset(10, 120), Size = UDim2.fromOffset(150, 10),
+                Parent = popup, ZIndex = 21, Position = UDim2.fromOffset(10, 130), Size = UDim2.fromOffset(PW - 20, 10),
                 BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
             }, {
                 corner(5),
@@ -1073,17 +1125,34 @@ function Ducky:CreateWindow(opts)
                 }),
             })
             local hueCursor = create("Frame", {
-                Parent = hue, ZIndex = 22, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(4, 14),
+                Parent = hue, ZIndex = 22, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(4, 16),
                 BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
             }, { corner(2) })
 
+            local preview = create("Frame", {
+                Parent = popup, ZIndex = 21, Position = UDim2.fromOffset(10, 150), Size = UDim2.fromOffset(24, 24),
+                BackgroundColor3 = Color3.fromHSV(h, s, v), BorderSizePixel = 0,
+            }, { corner(6) })
+            local hex = create("TextBox", {
+                Parent = popup, ZIndex = 21, Position = UDim2.fromOffset(42, 150), Size = UDim2.fromOffset(PW - 52, 24),
+                BackgroundColor3 = Theme.Field, BorderSizePixel = 0, Text = "", PlaceholderText = "#RRGGBB",
+                PlaceholderColor3 = Theme.Desc, TextColor3 = Theme.Text, FontFace = FONT_SEMI, TextSize = 12,
+                ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
+            }, { corner(5), padding(0, 8, 0, 8) })
+
             local Picker = { Type = "ColorPicker", Color = Color3.fromHSV(h, s, v), Flag = o.Flag }
+
+            local function toHex(c3)
+                return string.format("#%02X%02X%02X", math.floor(c3.R * 255 + 0.5), math.floor(c3.G * 255 + 0.5), math.floor(c3.B * 255 + 0.5))
+            end
             local function visuals()
                 Picker.Color = Color3.fromHSV(h, s, v)
                 swatch.BackgroundColor3 = Picker.Color
+                preview.BackgroundColor3 = Picker.Color
                 sv.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
                 svCursor.Position = UDim2.fromScale(s, 1 - v)
                 hueCursor.Position = UDim2.new(h, 0, 0.5, 0)
+                if not hex:IsFocused() then hex.Text = toHex(Picker.Color) end
             end
             local function fire()
                 if o.Callback then task.spawn(o.Callback, Picker.Color) end
@@ -1106,37 +1175,51 @@ function Ducky:CreateWindow(opts)
             end
 
             local mode
-            local function drag()
-                local m = UserInputService:GetMouseLocation()
+            local function drag(pos)
                 if mode == "sv" then
-                    s = math.clamp((m.X - sv.AbsolutePosition.X) / sv.AbsoluteSize.X, 0, 1)
-                    v = 1 - math.clamp((m.Y - sv.AbsolutePosition.Y) / sv.AbsoluteSize.Y, 0, 1)
+                    s = math.clamp((pos.X - sv.AbsolutePosition.X) / sv.AbsoluteSize.X, 0, 1)
+                    v = 1 - math.clamp((pos.Y - sv.AbsolutePosition.Y) / sv.AbsoluteSize.Y, 0, 1)
                 elseif mode == "hue" then
-                    h = math.clamp((m.X - hue.AbsolutePosition.X) / hue.AbsoluteSize.X, 0, 1)
+                    h = math.clamp((pos.X - hue.AbsolutePosition.X) / hue.AbsoluteSize.X, 0, 1)
                 end
                 visuals()
                 fire()
             end
-            sv.InputBegan:Connect(function(i) if isPress(i) then mode = "sv"; drag() end end)
-            hue.InputBegan:Connect(function(i) if isPress(i) then mode = "hue"; drag() end end)
-            connect(UserInputService.InputChanged, function(i) if mode and isMove(i) then drag() end end)
+            sv.InputBegan:Connect(function(i) if isPress(i) then mode = "sv"; drag(screenPos(i)) end end)
+            hue.InputBegan:Connect(function(i) if isPress(i) then mode = "hue"; drag(screenPos(i)) end end)
+            connect(UserInputService.InputChanged, function(i) if mode and isMove(i) then drag(screenPos(i)) end end)
             connect(UserInputService.InputEnded, function(i) if isPress(i) then mode = nil end end)
 
-            swatch.MouseButton1Click:Connect(function()
-                if popup.Visible then popup.Visible = false; return end
-                local rel = (swatch.AbsolutePosition - main.AbsolutePosition) / scale.Scale
-                local x = math.clamp(rel.X + 20 - 170, 8, WIN_W - 178)
-                local y = rel.Y + 26
-                if y + 140 > WIN_H - 8 then y = rel.Y - 146 end
-                popup.Position = UDim2.fromOffset(x, y)
-                popup.Visible = true
-            end)
-            connect(UserInputService.InputBegan, function(input)
-                if popup.Visible and isPress(input) then
-                    local m = UserInputService:GetMouseLocation()
-                    if not inside(popup, m) and not inside(swatch, m) then popup.Visible = false end
+            hex.FocusLost:Connect(function()
+                local txt = hex.Text:gsub("[#%s]", "")
+                if #txt == 6 and tonumber(txt, 16) then
+                    local n = tonumber(txt, 16)
+                    Picker:Set(Color3.fromRGB(math.floor(n / 65536) % 256, math.floor(n / 256) % 256, n % 256))
+                else
+                    visuals()
                 end
             end)
+
+            local function close()
+                popup.Visible = false
+                catcher.Visible = false
+                if Window._closePicker == close then Window._closePicker = nil end
+            end
+            swatch.MouseButton1Click:Connect(function()
+                if popup.Visible then close(); return end
+                if Window._closePicker then Window._closePicker() end
+                local rel = (swatch.AbsolutePosition - main.AbsolutePosition) / scale.Scale
+                local x = math.clamp(rel.X + 22 - PW, 8, WIN_W - PW - 8)
+                local y = rel.Y + 28
+                if y + PH > WIN_H - 8 then y = rel.Y - PH - 6 end
+                popup.Position = UDim2.fromOffset(x, math.max(y, 8))
+                catcher.Visible = true
+                popup.Visible = true
+                Window._closePicker = close
+                visuals()
+            end)
+            catcher.MouseButton1Click:Connect(close)
+            catcher.InputBegan:Connect(function(i) if isPress(i) then close() end end)
 
             register(o, Picker)
             visuals()
@@ -1151,11 +1234,9 @@ function Ducky:CreateWindow(opts)
 
             local box = create("TextButton", {
                 Parent = head, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
-                Size = UDim2.fromOffset(0, 22), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Theme.Field,
+                Size = UDim2.fromOffset(0, 24), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Theme.Field,
                 BorderSizePixel = 0, Text = "", AutoButtonColor = false,
             }, { corner(5), padding(0, 10, 0, 10) })
-            local boxStroke = stroke(Theme.Border, 1)
-            boxStroke.Parent = box
             local lab = text({
                 Parent = box, Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X,
                 TextXAlignment = Enum.TextXAlignment.Center, Text = key.Name, FontFace = FONT_BOLD, TextSize = 11,
@@ -1179,16 +1260,18 @@ function Ducky:CreateWindow(opts)
             box.MouseButton1Click:Connect(function()
                 listening = true
                 lab.Text = "..."
-                tween(boxStroke, { Color = Theme.Accent })
+                tween(box, { BackgroundColor3 = Theme.Track })
+                tween(lab, { TextColor3 = Theme.Accent })
             end)
-            box.MouseEnter:Connect(function() if not listening then tween(boxStroke, { Color = Theme.Control }) end end)
-            box.MouseLeave:Connect(function() if not listening then tween(boxStroke, { Color = Theme.Border }) end end)
+            box.MouseEnter:Connect(function() if not listening then tween(box, { BackgroundColor3 = Theme.Track }) end end)
+            box.MouseLeave:Connect(function() if not listening then tween(box, { BackgroundColor3 = Theme.Field }) end end)
 
             connect(UserInputService.InputBegan, function(input, gpe)
                 if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
                 if listening then
                     listening = false
-                    tween(boxStroke, { Color = Theme.Border })
+                    tween(box, { BackgroundColor3 = Theme.Field })
+                    tween(lab, { TextColor3 = Theme.Text })
                     if input.KeyCode == Enum.KeyCode.Escape then
                         lab.Text = key.Name
                     else
@@ -1226,9 +1309,7 @@ function Ducky:CreateWindow(opts)
                 PlaceholderText = o.PlaceholderText or "Type here...", PlaceholderColor3 = Theme.Desc,
                 TextColor3 = Theme.Text, FontFace = FONT_SEMI, TextSize = 12, ClearTextOnFocus = false,
                 TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 1,
-            }, { corner(5), padding(0, 10, 0, 10) })
-            local fieldStroke = stroke(Theme.Border, 1)
-            fieldStroke.Parent = field
+            }, { corner(5), padding(0, 12, 0, 12) })
 
             local Input = { Type = "Input", CurrentValue = field.Text, Flag = o.Flag }
             function Input:Set(t, silent, nosave)
@@ -1241,9 +1322,9 @@ function Ducky:CreateWindow(opts)
             function Input:_ToConfig() return self.CurrentValue end
             function Input:_FromConfig(v) self:Set(tostring(v)) end
 
-            field.Focused:Connect(function() tween(fieldStroke, { Color = Theme.Accent }) end)
+            field.Focused:Connect(function() tween(field, { BackgroundColor3 = Theme.Track }) end)
             field.FocusLost:Connect(function()
-                tween(fieldStroke, { Color = Theme.Border })
+                tween(field, { BackgroundColor3 = Theme.Field })
                 Input.CurrentValue = field.Text
                 if o.Callback then task.spawn(o.Callback, field.Text) end
                 saveConfig()
@@ -1352,6 +1433,7 @@ function Ducky:CreateWindow(opts)
     end
 
     local function hide()
+        if Window._closePicker then Window._closePicker() end
         Window.Open = false
         tween(main, { GroupTransparency = 1 }, 0.2)
         tween(scale, { Scale = 0.92 }, 0.2).Completed:Connect(function()
