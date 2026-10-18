@@ -224,7 +224,7 @@ end
 
 -- library -----------------------------------------------------------------
 
-local Ducky = { Version = "3.0.0", Theme = Theme, Flags = {} }
+local Ducky = { Version = "3.0.1", Theme = Theme, Flags = {} }
 
 -- Provide your own Lucide-compatible module: GetAsset(name, size) -> { Url, ImageRectSize, ImageRectOffset }
 function Ducky:SetLucide(module)
@@ -1742,31 +1742,31 @@ function Ducky:CreateWindow(opts)
     if opts.HiddenPill ~= false then
         pill = create("TextButton", {
             Parent = gui, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, -70),
-            Size = UDim2.fromOffset(0, 48), AutomaticSize = Enum.AutomaticSize.X,
-            BackgroundColor3 = Color3.fromRGB(8, 8, 8), BackgroundTransparency = 0.04, BorderSizePixel = 0,
+            Size = UDim2.fromOffset(0, 46), AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundColor3 = Color3.fromRGB(22, 22, 22), BackgroundTransparency = 0.06, BorderSizePixel = 0,
             Text = "", AutoButtonColor = false, Visible = false,
         }, {
-            create("UICorner", { CornerRadius = UDim.new(0.5, 0) }), stroke(Theme.Border, 1), padding(0, 24, 0, 18),
+            create("UICorner", { CornerRadius = UDim.new(0.5, 0) }), create("UISizeConstraint", { MinSize = Vector2.new(206, 46) }), padding(0, 34, 0, 18),
             create("UIListLayout", {
                 FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center,
-                Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder,
+                Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder,
             }),
         })
-        icon({ Parent = pill, Size = UDim2.fromOffset(22, 22), LayoutOrder = 1 }, opts.PillIcon or "bird", Theme.Accent)
+        icon({ Parent = pill, Size = UDim2.fromOffset(24, 24), LayoutOrder = 1 }, opts.PillIcon or "bird", Color3.new(1, 1, 1))
         local words = create("Frame", {
             Parent = pill, BackgroundTransparency = 1, Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY,
             LayoutOrder = 2,
         }, { create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }) })
         text({
-            Parent = words, Size = UDim2.fromOffset(0, 17), AutomaticSize = Enum.AutomaticSize.X,
-            Text = name, FontFace = FONT_BOLD, TextSize = 14, LayoutOrder = 1,
+            Parent = words, Size = UDim2.fromOffset(0, 19), AutomaticSize = Enum.AutomaticSize.X,
+            Text = name, FontFace = FONT_BOLD, TextSize = 15, LayoutOrder = 1,
         })
         pillSub = text({
-            Parent = words, Size = UDim2.fromOffset(0, 14), AutomaticSize = Enum.AutomaticSize.X,
-            Text = opts.PillCloseText or "Tap to close", TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 11, LayoutOrder = 2,
+            Parent = words, Size = UDim2.fromOffset(0, 15), AutomaticSize = Enum.AutomaticSize.X,
+            Text = opts.PillCloseText or "Tap to close", TextColor3 = Color3.fromRGB(150, 150, 150), FontFace = FONT_SEMI, TextSize = 12, LayoutOrder = 2,
         })
-        pill.MouseEnter:Connect(function() tween(pill, { BackgroundColor3 = Color3.fromRGB(20, 20, 20) }) end)
-        pill.MouseLeave:Connect(function() tween(pill, { BackgroundColor3 = Color3.fromRGB(8, 8, 8) }) end)
+        pill.MouseEnter:Connect(function() tween(pill, { BackgroundColor3 = Color3.fromRGB(32, 32, 32) }) end)
+        pill.MouseLeave:Connect(function() tween(pill, { BackgroundColor3 = Color3.fromRGB(22, 22, 22) }) end)
         pill.MouseButton1Click:Connect(function() Window:Toggle() end)
     end
 
