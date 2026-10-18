@@ -224,7 +224,7 @@ end
 
 -- library -----------------------------------------------------------------
 
-local Ducky = { Version = "2.7.0", Theme = Theme, Flags = {} }
+local Ducky = { Version = "2.8.0", Theme = Theme, Flags = {} }
 
 -- Provide your own Lucide-compatible module: GetAsset(name, size) -> { Url, ImageRectSize, ImageRectOffset }
 function Ducky:SetLucide(module)
@@ -1787,16 +1787,11 @@ function Ducky:CreateWindow(opts)
         tb.MouseButton1Click:Connect(function() Window:Toggle() end)
     end
 
-    -- loading screen: dot spinner, progress bar with %, "did you know" pill (matches the window style)
+    -- loading screen: animated spinner, title, progress bar with % (matches the window style)
     if opts.LoadingEnabled == false then
         task.defer(show)
     else
         local duration = opts.LoadingTime or 2.6
-        local tips = opts.LoadingTips or {
-            "Press " .. keybind.Name .. " to show or hide the menu.",
-            "Drag the logo to move the window.",
-            "Settings can save automatically.",
-        }
         -- spinner styles: "Sphere" (default), "Dots", "Arc", "Pulse", "Bars", "Orbit", or "Random"
         local STYLES = { "Sphere", "Dots", "Arc", "Pulse", "Bars", "Orbit" }
         local style = opts.LoadingStyle or "Sphere"
@@ -1811,53 +1806,92 @@ function Ducky:CreateWindow(opts)
             local half = Vector2.new(0.5, 0.5)
 
             if style == "Sphere" then
-                -- rotating particle sphere: dots fly in from the edges, then spin with depth shading and twinkle
-                local N, R = 170, 46
-                local rng = Random.new(7)
-                local pts, dots = {}, {}
-                for i = 1, N do
-                    local theta = rng:NextNumber(0, math.pi * 2)
-                    local phi = rng:NextNumber(0, math.pi) -- uniform in angle, so it is denser at the poles
-                    pts[i] = {
-                        x = math.sin(phi) * math.cos(theta), y = math.cos(phi), z = math.sin(phi) * math.sin(theta),
-                        sx = rng:NextNumber(-1, 1) * 1.7, sy = rng:NextNumber(-1, 1) * 1.7,
-                        tw = rng:NextNumber(0, 6.28), sp = rng:NextNumber(1.5, 3.5),
-                    }
-                    dots[i] = create("Frame", {
-                        Parent = host, AnchorPoint = half, BorderSizePixel = 0, BackgroundColor3 = Color3.new(1, 1, 1),
-                        Size = UDim2.fromOffset(2, 2), Position = center, BackgroundTransparency = 1,
+                -- 3D particle globe: perspective, lighting from the top-left, glow, and a tilted ring of dust
+                local R = 46
+                local rng = Random.new(11)
+                local white = Color3.new(1, 1, 1)
+                local light = Vector3.new(-0.5, -0.6, 0.62).Unit
+
+                -- soft glow behind the globe
+                local glows = {}
+                for i = 1, 4 do
+                    local sz = 100 + i * 26
+                    glows[i] = create("Frame", {
+                        Parent = host, AnchorPoint = half, Position = center, Size = UDim2.fromOffset(sz, sz),
+                        BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0.97 + i * 0.006, BorderSizePixel = 0, ZIndex = 0,
                     }, { round() })
                 end
-                local white = Color3.new(1, 1, 1)
+
+                local pts = {}
+                local function addPoint(x, y, z, kind)
+                    local d = create("Frame", {
+                        Parent = host, AnchorPoint = half, BorderSizePixel = 0, BackgroundColor3 = white,
+                        Size = UDim2.fromOffset(2, 2), Position = center, BackgroundTransparency = 1,
+                    }, { round() })
+                    table.insert(pts, {
+                        x = x, y = y, z = z, kind = kind, d = d,
+                        sx = rng:NextNumber(-1, 1) * 1.8, sy = rng:NextNumber(-1, 1) * 1.8,
+                        tw = rng:NextNumber(0, 6.28), sp = rng:NextNumber(1.5, 3.5),
+                    })
+                end
+                for _ = 1, 300 do -- globe: uniform in angle, so denser at the poles
+                    local theta = rng:NextNumber(0, math.pi * 2)
+                    local phi = rng:NextNumber(0, math.pi)
+                    addPoint(math.sin(phi) * math.cos(theta), math.cos(phi), math.sin(phi) * math.sin(theta), 0)
+                end
+                for i = 1, 90 do -- ring of dust, on a plane around the globe
+                    local a = i / 90 * math.pi * 2 + rng:NextNumber(-0.05, 0.05)
+                    local rr = 1.38 + rng:NextNumber(-0.07, 0.07)
+                    addPoint(math.cos(a) * rr, rng:NextNumber(-0.02, 0.02), math.sin(a) * rr, 1)
+                end
+
                 local t0
                 return function(now)
                     t0 = t0 or now
-                    local form = math.clamp((now - t0) / 1.1, 0, 1)
+                    local form = math.clamp((now - t0) / 1.2, 0, 1)
                     form = 1 - (1 - form) ^ 3
-                    local ay = now * 0.9
-                    local ax = 0.35 + math.sin(now * 0.5) * 0.12
-                    local cyaw, syaw = math.cos(ay), math.sin(ay)
-                    local cpit, spit = math.cos(ax), math.sin(ax)
-                    local breathe = 1 + math.sin(now * 2) * 0.025
+                    local yaw = now * 0.8
+                    local pitch = 0.42 + math.sin(now * 0.45) * 0.1
+                    local cp, sp = math.cos(pitch), math.sin(pitch)
+                    local breathe = 1 + math.sin(now * 2) * 0.02
                     local accent = Theme.Accent
-                    for i, p in ipairs(pts) do
-                        local x1 = p.x * cyaw + p.z * syaw
-                        local z1 = -p.x * syaw + p.z * cyaw
-                        local y2 = p.y * cpit - z1 * spit
-                        local z2 = p.y * spit + z1 * cpit
-                        local depth = (z2 + 1) / 2 -- 0 = back, 1 = front
-                        local px = x1 * form + p.sx * (1 - form)
-                        local py = y2 * form + p.sy * (1 - form)
-                        local d = dots[i]
+                    local dim = accent:Lerp(Color3.new(0, 0, 0), 0.55)
+
+                    for i, g in ipairs(glows) do
+                        g.BackgroundTransparency = math.clamp(0.97 + i * 0.006 - math.sin(now * 2 + i) * 0.006 + (1 - form) * 0.03, 0, 1)
+                    end
+
+                    for _, p in ipairs(pts) do
+                        local ryaw = p.kind == 1 and (yaw * -1.6) or yaw
+                        local cy_, sy_ = math.cos(ryaw), math.sin(ryaw)
+                        local x1 = p.x * cy_ + p.z * sy_
+                        local z1 = -p.x * sy_ + p.z * cy_
+                        local y2 = p.y * cp - z1 * sp
+                        local z2 = p.y * sp + z1 * cp
+
+                        local persp = 1.9 / (1.9 - z2 * 0.55) -- nearer dots are bigger and pushed outwards
+                        local px = x1 * persp * form + p.sx * (1 - form)
+                        local py = y2 * persp * form + p.sy * (1 - form)
+
+                        local depth = math.clamp((z2 + 1.4) / 2.8, 0, 1)
+                        local shade
+                        if p.kind == 0 then
+                            local n = Vector3.new(x1, y2, z2)
+                            shade = math.clamp(n:Dot(light) * 0.5 + 0.55, 0, 1) -- lit side vs dark side
+                        else
+                            shade = depth
+                        end
+
+                        local d = p.d
                         d.Position = UDim2.new(0.5, px * R * breathe, 0, CY + py * R * breathe)
-                        local sz = 1.5 + depth * 2.5
+                        local sz = (1.1 + depth * 2.6) * (p.kind == 1 and 0.8 or 1)
                         d.Size = UDim2.fromOffset(sz, sz)
-                        local twinkle = 0.65 + 0.35 * (0.5 + 0.5 * math.sin(now * p.sp + p.tw))
-                        d.BackgroundTransparency = math.clamp(1 - (0.25 + depth * 0.65) * twinkle * form, 0, 1)
-                        d.BackgroundColor3 = accent:Lerp(white, depth * 0.55)
+                        d.ZIndex = 2 + math.floor(depth * 100)
+                        local twinkle = 0.7 + 0.3 * (0.5 + 0.5 * math.sin(now * p.sp + p.tw))
+                        d.BackgroundTransparency = math.clamp(1 - (0.12 + depth * 0.8) * twinkle * form, 0, 1)
+                        d.BackgroundColor3 = dim:Lerp(accent, math.min(1, shade * 1.4)):Lerp(white, math.max(0, shade - 0.65) * 1.6)
                     end
                 end
-
             elseif style == "Arc" then
                 local ring = create("Frame", {
                     Parent = host, AnchorPoint = half, Position = center, Size = UDim2.fromOffset(42, 42),
@@ -1968,7 +2002,7 @@ function Ducky:CreateWindow(opts)
             })
             card = create("CanvasGroup", {
                 Parent = gui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-                Size = UDim2.fromOffset(340, 302), BackgroundColor3 = Theme.Window, BorderSizePixel = 0,
+                Size = UDim2.fromOffset(340, 246), BackgroundColor3 = Theme.Window, BorderSizePixel = 0,
                 GroupTransparency = 1,
             }, { corner(10), stroke(Theme.Border, 1) })
             local lscale = create("UIScale", { Parent = card, Scale = 0.94 })
@@ -2021,44 +2055,13 @@ function Ducky:CreateWindow(opts)
                 TextColor3 = Theme.Text,
             })
 
-            -- "did you know" pill
-            local pill = create("Frame", {
-                Parent = card, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 240),
-                Size = UDim2.fromOffset(0, 30), AutomaticSize = Enum.AutomaticSize.X,
-                BackgroundColor3 = Color3.fromRGB(26, 26, 26), BorderSizePixel = 0,
-            }, {
-                corner(15), stroke(Theme.Border, 1),
-                padding(0, 14, 0, 5),
-                create("UIListLayout", {
-                    FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center,
-                    Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder,
-                }),
-            })
-            local bulb = create("Frame", {
-                Parent = pill, Size = UDim2.fromOffset(20, 20), BackgroundColor3 = Theme.Accent,
-                BorderSizePixel = 0, LayoutOrder = 1,
-            }, { corner(10) })
-            icon({
-                Parent = bulb, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-                Size = UDim2.fromOffset(12, 12),
-            }, "lightbulb", Theme.OnAccent)
-            text({
-                Parent = pill, Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X,
-                Text = "DID YOU KNOW?", FontFace = FONT_BOLD, TextSize = 11, LayoutOrder = 2,
-            })
-            local tip = text({
-                Parent = card, Position = UDim2.fromOffset(20, 276), Size = UDim2.new(1, -40, 0, 16),
-                TextXAlignment = Enum.TextXAlignment.Center, Text = tips[1] or "", TextColor3 = Theme.Desc,
-                FontFace = FONT_SEMI, TextSize = 11,
-            })
-
             tween(backdrop, { BackgroundTransparency = 0.5 }, 0.3)
             tween(card, { GroupTransparency = 0 }, 0.3)
             tween(lscale, { Scale = 1 }, 0.4, Enum.EasingStyle.Back)
             tween(lunder, { Size = UDim2.fromOffset(110, 2) }, 0.8, Enum.EasingStyle.Quint)
 
             task.spawn(function()
-                local start, tipN, lastTip = os.clock(), 1, os.clock()
+                local start = os.clock()
                 while card.Parent do
                     local now = os.clock()
                     local t = math.clamp((now - start) / duration, 0, 1)
@@ -2069,11 +2072,6 @@ function Ducky:CreateWindow(opts)
 
                     spin(now)
 
-                    if #tips > 1 and now - lastTip > 1.3 then
-                        lastTip = now
-                        tipN = tipN % #tips + 1
-                        tip.Text = tips[tipN]
-                    end
                     if t >= 1 then break end
                     task.wait()
                 end
