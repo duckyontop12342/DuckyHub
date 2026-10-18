@@ -3,7 +3,7 @@
     Black & yellow. Rayfield-style API. Icon sidebar, loading screen, notifications, config saving.
     Icons: Lucide (latte-soft/lucide-roblox sprite sheets - no file functions needed)
 
-    local Ducky  = loadstring(game:HttpGet("https://raw.githubusercontent.com/nondojayden1-alt/DuckyHub/refs/heads/main/DuckyUIHub"))()
+    local Ducky  = loadstring(game:HttpGet("https://raw.githubusercontent.com/<you>/Ducky/main/Library.lua"))()
 
     local Window = Ducky:CreateWindow({
         Name = "My Hub",
@@ -224,7 +224,7 @@ end
 
 -- library -----------------------------------------------------------------
 
-local Ducky = { Version = "2.6.0", Theme = Theme, Flags = {} }
+local Ducky = { Version = "2.7.0", Theme = Theme, Flags = {} }
 
 -- Provide your own Lucide-compatible module: GetAsset(name, size) -> { Url, ImageRectSize, ImageRectOffset }
 function Ducky:SetLucide(module)
@@ -1797,20 +1797,68 @@ function Ducky:CreateWindow(opts)
             "Drag the logo to move the window.",
             "Settings can save automatically.",
         }
-        -- spinner styles: "Dots" (default), "Arc", "Pulse", "Bars", "Orbit", or "Random"
-        local STYLES = { "Dots", "Arc", "Pulse", "Bars", "Orbit" }
-        local style = opts.LoadingStyle or "Dots"
+        -- spinner styles: "Sphere" (default), "Dots", "Arc", "Pulse", "Bars", "Orbit", or "Random"
+        local STYLES = { "Sphere", "Dots", "Arc", "Pulse", "Bars", "Orbit" }
+        local style = opts.LoadingStyle or "Sphere"
         if style == "Random" or not table.find(STYLES, style) then
-            style = style == "Random" and STYLES[math.random(1, #STYLES)] or "Dots"
+            style = style == "Random" and STYLES[math.random(1, #STYLES)] or "Sphere"
         end
         local round = function() return create("UICorner", { CornerRadius = UDim.new(0.5, 0) }) end
-        local CY = 44
+        local CY = 64
 
         local function buildSpinner(host)
             local center = UDim2.new(0.5, 0, 0, CY)
             local half = Vector2.new(0.5, 0.5)
 
-            if style == "Arc" then
+            if style == "Sphere" then
+                -- rotating particle sphere: dots fly in from the edges, then spin with depth shading and twinkle
+                local N, R = 170, 46
+                local rng = Random.new(7)
+                local pts, dots = {}, {}
+                for i = 1, N do
+                    local theta = rng:NextNumber(0, math.pi * 2)
+                    local phi = rng:NextNumber(0, math.pi) -- uniform in angle, so it is denser at the poles
+                    pts[i] = {
+                        x = math.sin(phi) * math.cos(theta), y = math.cos(phi), z = math.sin(phi) * math.sin(theta),
+                        sx = rng:NextNumber(-1, 1) * 1.7, sy = rng:NextNumber(-1, 1) * 1.7,
+                        tw = rng:NextNumber(0, 6.28), sp = rng:NextNumber(1.5, 3.5),
+                    }
+                    dots[i] = create("Frame", {
+                        Parent = host, AnchorPoint = half, BorderSizePixel = 0, BackgroundColor3 = Color3.new(1, 1, 1),
+                        Size = UDim2.fromOffset(2, 2), Position = center, BackgroundTransparency = 1,
+                    }, { round() })
+                end
+                local white = Color3.new(1, 1, 1)
+                local t0
+                return function(now)
+                    t0 = t0 or now
+                    local form = math.clamp((now - t0) / 1.1, 0, 1)
+                    form = 1 - (1 - form) ^ 3
+                    local ay = now * 0.9
+                    local ax = 0.35 + math.sin(now * 0.5) * 0.12
+                    local cyaw, syaw = math.cos(ay), math.sin(ay)
+                    local cpit, spit = math.cos(ax), math.sin(ax)
+                    local breathe = 1 + math.sin(now * 2) * 0.025
+                    local accent = Theme.Accent
+                    for i, p in ipairs(pts) do
+                        local x1 = p.x * cyaw + p.z * syaw
+                        local z1 = -p.x * syaw + p.z * cyaw
+                        local y2 = p.y * cpit - z1 * spit
+                        local z2 = p.y * spit + z1 * cpit
+                        local depth = (z2 + 1) / 2 -- 0 = back, 1 = front
+                        local px = x1 * form + p.sx * (1 - form)
+                        local py = y2 * form + p.sy * (1 - form)
+                        local d = dots[i]
+                        d.Position = UDim2.new(0.5, px * R * breathe, 0, CY + py * R * breathe)
+                        local sz = 1.5 + depth * 2.5
+                        d.Size = UDim2.fromOffset(sz, sz)
+                        local twinkle = 0.65 + 0.35 * (0.5 + 0.5 * math.sin(now * p.sp + p.tw))
+                        d.BackgroundTransparency = math.clamp(1 - (0.25 + depth * 0.65) * twinkle * form, 0, 1)
+                        d.BackgroundColor3 = accent:Lerp(white, depth * 0.55)
+                    end
+                end
+
+            elseif style == "Arc" then
                 local ring = create("Frame", {
                     Parent = host, AnchorPoint = half, Position = center, Size = UDim2.fromOffset(42, 42),
                     BackgroundTransparency = 1,
@@ -1920,7 +1968,7 @@ function Ducky:CreateWindow(opts)
             })
             card = create("CanvasGroup", {
                 Parent = gui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-                Size = UDim2.fromOffset(340, 262), BackgroundColor3 = Theme.Window, BorderSizePixel = 0,
+                Size = UDim2.fromOffset(340, 302), BackgroundColor3 = Theme.Window, BorderSizePixel = 0,
                 GroupTransparency = 1,
             }, { corner(10), stroke(Theme.Border, 1) })
             local lscale = create("UIScale", { Parent = card, Scale = 0.94 })
@@ -1928,7 +1976,7 @@ function Ducky:CreateWindow(opts)
             local spin = buildSpinner(card)
 
             local ltitle = text({
-                Parent = card, Position = UDim2.fromOffset(20, 82), Size = UDim2.new(1, -40, 0, 30),
+                Parent = card, Position = UDim2.fromOffset(20, 124), Size = UDim2.new(1, -40, 0, 30),
                 TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingTitle or name,
                 TextScaled = true, FontFace = FONT_ITAL,
             })
@@ -1936,7 +1984,7 @@ function Ducky:CreateWindow(opts)
             create("UIGradient", { Parent = ltitle, Rotation = 90, Color = ColorSequence.new(Theme.Accent, Theme.AccentDim) })
 
             local lunder = create("Frame", {
-                Parent = card, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 114),
+                Parent = card, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 156),
                 Size = UDim2.fromOffset(0, 2), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
             }, {
                 create("UIGradient", {
@@ -1948,13 +1996,13 @@ function Ducky:CreateWindow(opts)
             })
 
             text({
-                Parent = card, Position = UDim2.fromOffset(20, 122), Size = UDim2.new(1, -40, 0, 16),
+                Parent = card, Position = UDim2.fromOffset(20, 164), Size = UDim2.new(1, -40, 0, 16),
                 TextXAlignment = Enum.TextXAlignment.Center, Text = opts.LoadingSubtitle or "Loading interface",
                 TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 12,
             })
 
             local barTrack = create("Frame", {
-                Parent = card, Position = UDim2.new(0, 30, 0, 154), Size = UDim2.new(1, -60, 0, 6),
+                Parent = card, Position = UDim2.new(0, 30, 0, 196), Size = UDim2.new(1, -60, 0, 6),
                 BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
             }, { corner(3) })
             local barFill = create("Frame", {
@@ -1964,18 +2012,18 @@ function Ducky:CreateWindow(opts)
                 create("UIGradient", { Color = ColorSequence.new(Theme.AccentDim, Theme.Accent) }),
             })
             local status = text({
-                Parent = card, Position = UDim2.fromOffset(30, 166), Size = UDim2.new(0.6, 0, 0, 14),
+                Parent = card, Position = UDim2.fromOffset(30, 208), Size = UDim2.new(0.6, 0, 0, 14),
                 Text = "Starting...", TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 11,
             })
             local pct = text({
-                Parent = card, Position = UDim2.new(1, -80, 0, 164), Size = UDim2.fromOffset(50, 16),
+                Parent = card, Position = UDim2.new(1, -80, 0, 206), Size = UDim2.fromOffset(50, 16),
                 TextXAlignment = Enum.TextXAlignment.Right, Text = "0%", FontFace = FONT_BOLD, TextSize = 13,
                 TextColor3 = Theme.Text,
             })
 
             -- "did you know" pill
             local pill = create("Frame", {
-                Parent = card, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 198),
+                Parent = card, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 240),
                 Size = UDim2.fromOffset(0, 30), AutomaticSize = Enum.AutomaticSize.X,
                 BackgroundColor3 = Color3.fromRGB(26, 26, 26), BorderSizePixel = 0,
             }, {
@@ -1999,7 +2047,7 @@ function Ducky:CreateWindow(opts)
                 Text = "DID YOU KNOW?", FontFace = FONT_BOLD, TextSize = 11, LayoutOrder = 2,
             })
             local tip = text({
-                Parent = card, Position = UDim2.fromOffset(20, 234), Size = UDim2.new(1, -40, 0, 16),
+                Parent = card, Position = UDim2.fromOffset(20, 276), Size = UDim2.new(1, -40, 0, 16),
                 TextXAlignment = Enum.TextXAlignment.Center, Text = tips[1] or "", TextColor3 = Theme.Desc,
                 FontFace = FONT_SEMI, TextSize = 11,
             })
