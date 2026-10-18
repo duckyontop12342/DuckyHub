@@ -3,7 +3,7 @@
     Black & yellow. Rayfield-style API. Icon sidebar, loading screen, notifications, config saving.
     Icons: Lucide (latte-soft/lucide-roblox sprite sheets - no file functions needed)
 
-    local Ducky  = loadstring(game:HttpGet("https://raw.githubusercontent.com/<you>/Ducky/main/Library.lua"))()
+    local Ducky  = loadstring(game:HttpGet("https://raw.githubusercontent.com/nondojayden1-alt/DuckyHub/refs/heads/main/DuckyUIHub"))()
 
     local Window = Ducky:CreateWindow({
         Name = "My Hub",
