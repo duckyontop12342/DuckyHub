@@ -224,7 +224,7 @@ end
 
 -- library -----------------------------------------------------------------
 
-local Ducky = { Version = "3.0.1", Theme = Theme, Flags = {} }
+local Ducky = { Version = "3.1.0", Theme = Theme, Flags = {} }
 
 -- Provide your own Lucide-compatible module: GetAsset(name, size) -> { Url, ImageRectSize, ImageRectOffset }
 function Ducky:SetLucide(module)
@@ -425,6 +425,19 @@ function Ducky:CreateWindow(opts)
         Position = UDim2.fromScale(0.5, 0.5), GroupTransparency = 1, Visible = false, Active = true,
     }, { corner(8), stroke(Theme.Border, 1) })
     local scale = create("UIScale", { Parent = main, Scale = 0.9 })
+    create("UIGradient", { Parent = main, Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(180, 180, 180)) })
+    create("Frame", { -- lit edge along the top of the window
+        Parent = main, Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 10,
+    }, {
+        create("UIGradient", {
+            Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Theme.AccentDim), ColorSequenceKeypoint.new(0.5, Theme.Accent), ColorSequenceKeypoint.new(1, Theme.AccentDim),
+            }),
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.15), NumberSequenceKeypoint.new(1, 1),
+            }),
+        }),
+    })
 
     -- phones / small screens: shrink the whole window to fit the viewport (and follow rotation)
     local function computeFit()
@@ -474,7 +487,9 @@ function Ducky:CreateWindow(opts)
     end
 
     -- sidebar -------------------------------------------------------------
-    create("Frame", { Parent = main, BackgroundColor3 = Theme.Sidebar, BorderSizePixel = 0, Size = UDim2.new(0, SIDEBAR_W, 1, 0) })
+    create("Frame", { Parent = main, BackgroundColor3 = Theme.Sidebar, BorderSizePixel = 0, Size = UDim2.new(0, SIDEBAR_W, 1, 0) }, {
+        create("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(150, 150, 150)) }),
+    })
     create("Frame", { Parent = main, BackgroundColor3 = Theme.Border, BorderSizePixel = 0, Position = UDim2.fromOffset(SIDEBAR_W, 0), Size = UDim2.new(0, 1, 1, 0) })
 
     local logoArea = create("Frame", {
@@ -702,6 +717,7 @@ function Ducky:CreateWindow(opts)
                 Size = columnWidth(cols), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = order,
             }, {
                 corner(6), padding(10, 12, 10, 12),
+                create("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(205, 205, 205)) }),
                 create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
             })
             c.MouseEnter:Connect(function() tween(c, { BackgroundColor3 = Theme.CardHover }) end)
@@ -881,7 +897,10 @@ function Ducky:CreateWindow(opts)
                 Parent = c, Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Theme.Button, BorderSizePixel = 0,
                 Text = o.ButtonText or "Run", FontFace = FONT_BOLD, TextSize = 12, TextColor3 = Theme.Text,
                 AutoButtonColor = false, LayoutOrder = 1,
-            }, { corner(5) })
+            }, {
+                corner(5),
+                create("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 190, 190)) }),
+            })
             local hovering = false
             btn.MouseEnter:Connect(function() hovering = true; tween(btn, { BackgroundColor3 = Theme.ButtonHover }) end)
             btn.MouseLeave:Connect(function() hovering = false; tween(btn, { BackgroundColor3 = Theme.Button }) end)
@@ -993,7 +1012,10 @@ function Ducky:CreateWindow(opts)
                 box = create("TextButton", {
                     Parent = wrap, Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Theme.Field,
                     BorderSizePixel = 0, Text = "", AutoButtonColor = false, LayoutOrder = 0,
-                }, { corner(5) })
+                }, {
+                    corner(5),
+                    create("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(200, 200, 200)) }),
+                })
                 shown = text({
                     Parent = box, Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -36, 1, 0),
                     TextTruncate = Enum.TextTruncate.AtEnd, TextColor3 = Theme.Desc, FontFace = FONT_SEMI,
@@ -1019,7 +1041,10 @@ function Ducky:CreateWindow(opts)
             local panel = create("Frame", {
                 Parent = list, Position = UDim2.fromOffset(0, 5), Size = UDim2.new(1, 0, 0, panelH()),
                 BackgroundColor3 = Theme.Button, BorderSizePixel = 0,
-            }, { corner(10) })
+            }, {
+                corner(10),
+                create("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 190, 190)) }),
+            })
             local optScroll = create("ScrollingFrame", {
                 Parent = panel, BackgroundTransparency = 1, BorderSizePixel = 0, Position = UDim2.fromOffset(0, 4),
                 Size = UDim2.new(1, 0, 0, visRows() * ROW), ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Accent,
@@ -1747,12 +1772,22 @@ function Ducky:CreateWindow(opts)
             Text = "", AutoButtonColor = false, Visible = false,
         }, {
             create("UICorner", { CornerRadius = UDim.new(0.5, 0) }), create("UISizeConstraint", { MinSize = Vector2.new(206, 46) }), padding(0, 34, 0, 18),
+            create("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(120, 120, 120)) }),
+            create("UIStroke", {
+                Color = Color3.new(1, 1, 1), Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            }, {
+                create("UIGradient", {
+                    Rotation = 90,
+                    Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(1, 0.95) }),
+                }),
+            }),
             create("UIListLayout", {
                 FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center,
                 Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder,
             }),
         })
-        icon({ Parent = pill, Size = UDim2.fromOffset(24, 24), LayoutOrder = 1 }, opts.PillIcon or "bird", Color3.new(1, 1, 1))
+        local pillIcon = icon({ Parent = pill, Size = UDim2.fromOffset(24, 24), LayoutOrder = 1 }, opts.PillIcon or "bird", Color3.new(1, 1, 1))
+        create("UIGradient", { Parent = pillIcon, Rotation = 90, Color = ColorSequence.new(Theme.Accent, Theme.AccentDim) })
         local words = create("Frame", {
             Parent = pill, BackgroundTransparency = 1, Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY,
             LayoutOrder = 2,
