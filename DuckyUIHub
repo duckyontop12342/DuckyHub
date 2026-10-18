@@ -224,7 +224,7 @@ end
 
 -- library -----------------------------------------------------------------
 
-local Ducky = { Version = "2.8.0", Theme = Theme, Flags = {} }
+local Ducky = { Version = "2.8.1", Theme = Theme, Flags = {} }
 
 -- Provide your own Lucide-compatible module: GetAsset(name, size) -> { Url, ImageRectSize, ImageRectOffset }
 function Ducky:SetLucide(module)
@@ -1806,21 +1806,11 @@ function Ducky:CreateWindow(opts)
             local half = Vector2.new(0.5, 0.5)
 
             if style == "Sphere" then
-                -- 3D particle globe: perspective, lighting from the top-left, glow, and a tilted ring of dust
+                -- 3D particle globe: perspective, lighting from the top-left, and a tilted ring of dust
                 local R = 46
                 local rng = Random.new(11)
                 local white = Color3.new(1, 1, 1)
                 local light = Vector3.new(-0.5, -0.6, 0.62).Unit
-
-                -- soft glow behind the globe
-                local glows = {}
-                for i = 1, 4 do
-                    local sz = 100 + i * 26
-                    glows[i] = create("Frame", {
-                        Parent = host, AnchorPoint = half, Position = center, Size = UDim2.fromOffset(sz, sz),
-                        BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0.97 + i * 0.006, BorderSizePixel = 0, ZIndex = 0,
-                    }, { round() })
-                end
 
                 local pts = {}
                 local function addPoint(x, y, z, kind)
@@ -1856,10 +1846,6 @@ function Ducky:CreateWindow(opts)
                     local breathe = 1 + math.sin(now * 2) * 0.02
                     local accent = Theme.Accent
                     local dim = accent:Lerp(Color3.new(0, 0, 0), 0.55)
-
-                    for i, g in ipairs(glows) do
-                        g.BackgroundTransparency = math.clamp(0.97 + i * 0.006 - math.sin(now * 2 + i) * 0.006 + (1 - form) * 0.03, 0, 1)
-                    end
 
                     for _, p in ipairs(pts) do
                         local ryaw = p.kind == 1 and (yaw * -1.6) or yaw
