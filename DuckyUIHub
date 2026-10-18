@@ -224,7 +224,7 @@ end
 
 -- library -----------------------------------------------------------------
 
-local Ducky = { Version = "2.8.1", Theme = Theme, Flags = {} }
+local Ducky = { Version = "3.0.0", Theme = Theme, Flags = {} }
 
 -- Provide your own Lucide-compatible module: GetAsset(name, size) -> { Url, ImageRectSize, ImageRectOffset }
 function Ducky:SetLucide(module)
@@ -242,9 +242,11 @@ local function ensureNotifHolder()
         Name = "DuckyNotifications", ResetOnSpawn = false, IgnoreGuiInset = true,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 100, Parent = protectedParent(),
     })
+    local width = 340
+    pcall(function() width = math.min(340, workspace.CurrentCamera.ViewportSize.X - 24) end)
     notifHolder = create("Frame", {
         Parent = notifGui, BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 1),
-        Position = UDim2.new(1, -16, 1, -16), Size = UDim2.new(0, 340, 1, -32),
+        Position = UDim2.new(1, -12, 1, -12), Size = UDim2.new(0, width, 1, -24),
     }, {
         create("UIListLayout", {
             SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8),
@@ -420,9 +422,19 @@ function Ducky:CreateWindow(opts)
     local main = create("CanvasGroup", {
         Name = "Main", Parent = gui, BackgroundColor3 = Theme.Window, BorderSizePixel = 0,
         Size = UDim2.fromOffset(WIN_W, WIN_H), AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5), GroupTransparency = 1, Visible = false,
+        Position = UDim2.fromScale(0.5, 0.5), GroupTransparency = 1, Visible = false, Active = true,
     }, { corner(8), stroke(Theme.Border, 1) })
     local scale = create("UIScale", { Parent = main, Scale = 0.9 })
+
+    -- phones / small screens: shrink the whole window to fit the viewport (and follow rotation)
+    local function computeFit()
+        local cam = workspace.CurrentCamera
+        if not cam then return 1 end
+        local vp = cam.ViewportSize
+        return math.clamp(math.min((vp.X - 16) / WIN_W, (vp.Y - 16) / WIN_H, 1), 0.5, 1)
+    end
+    local baseScale = computeFit()
+    scale.Scale = baseScale * 0.9
     Window.Main = main
 
     -- configuration saving ---------------------------------------------------
@@ -510,7 +522,7 @@ function Ducky:CreateWindow(opts)
 
     -- drag --------------------------------------------------------------------
     do
-        local dragArea = create("Frame", { Parent = main, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 14), ZIndex = 0, Active = true })
+        local dragArea = create("Frame", { Parent = main, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, UserInputService.TouchEnabled and 26 or 14), ZIndex = 0, Active = true })
         local dragging, startPos, startInput
         local function begin(frame)
             connect(frame.InputBegan, function(input)
@@ -903,7 +915,7 @@ function Ducky:CreateWindow(opts)
                 TextXAlignment = Enum.TextXAlignment.Right, FontFace = FONT_BOLD, TextSize = 12,
             })
 
-            local bar = create("Frame", { Parent = c, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 1 })
+            local bar = create("Frame", { Parent = c, BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26), LayoutOrder = 1 })
             local trk = create("Frame", {
                 Parent = bar, Position = UDim2.new(0, 0, 0.5, -4), Size = UDim2.new(1, 0, 0, 8),
                 BackgroundColor3 = Theme.Track, BorderSizePixel = 0,
@@ -940,6 +952,7 @@ function Ducky:CreateWindow(opts)
             bar.InputBegan:Connect(function(i)
                 if isPress(i) then
                     dragging = true
+                    scroll.ScrollingEnabled = false
                     tween(knob, { Size = UDim2.fromOffset(12, 16) }, 0.1)
                     fromX(i.Position.X)
                 end
@@ -948,6 +961,7 @@ function Ducky:CreateWindow(opts)
             connect(UserInputService.InputEnded, function(i)
                 if isPress(i) and dragging then
                     dragging = false
+                    scroll.ScrollingEnabled = true
                     tween(knob, { Size = UDim2.fromOffset(10, 14) }, 0.12)
                 end
             end)
@@ -1723,17 +1737,69 @@ function Ducky:CreateWindow(opts)
     Window.AddTab = Window.CreateTab
 
     -- show / hide ---------------------------------------------------------------------
+    -- pill at the top middle: always there once loaded; click it to show or hide the window
+    local pill, pillSub, pillShown
+    if opts.HiddenPill ~= false then
+        pill = create("TextButton", {
+            Parent = gui, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, -70),
+            Size = UDim2.fromOffset(0, 48), AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundColor3 = Color3.fromRGB(8, 8, 8), BackgroundTransparency = 0.04, BorderSizePixel = 0,
+            Text = "", AutoButtonColor = false, Visible = false,
+        }, {
+            create("UICorner", { CornerRadius = UDim.new(0.5, 0) }), stroke(Theme.Border, 1), padding(0, 24, 0, 18),
+            create("UIListLayout", {
+                FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center,
+                Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder,
+            }),
+        })
+        icon({ Parent = pill, Size = UDim2.fromOffset(22, 22), LayoutOrder = 1 }, opts.PillIcon or "bird", Theme.Accent)
+        local words = create("Frame", {
+            Parent = pill, BackgroundTransparency = 1, Size = UDim2.fromOffset(0, 0), AutomaticSize = Enum.AutomaticSize.XY,
+            LayoutOrder = 2,
+        }, { create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }) })
+        text({
+            Parent = words, Size = UDim2.fromOffset(0, 17), AutomaticSize = Enum.AutomaticSize.X,
+            Text = name, FontFace = FONT_BOLD, TextSize = 14, LayoutOrder = 1,
+        })
+        pillSub = text({
+            Parent = words, Size = UDim2.fromOffset(0, 14), AutomaticSize = Enum.AutomaticSize.X,
+            Text = opts.PillCloseText or "Tap to close", TextColor3 = Theme.Desc, FontFace = FONT_SEMI, TextSize = 11, LayoutOrder = 2,
+        })
+        pill.MouseEnter:Connect(function() tween(pill, { BackgroundColor3 = Color3.fromRGB(20, 20, 20) }) end)
+        pill.MouseLeave:Connect(function() tween(pill, { BackgroundColor3 = Color3.fromRGB(8, 8, 8) }) end)
+        pill.MouseButton1Click:Connect(function() Window:Toggle() end)
+    end
+
+    -- open = true while the window is showing: the pill says "Tap to close", otherwise "Tap to show"
+    local function setPill(open)
+        if not pill then return end
+        pillSub.Text = open and (opts.PillCloseText or "Tap to close") or (opts.PillText or "Tap to show")
+        if not pillShown then
+            pillShown = true
+            pill.Visible = true
+            tween(pill, { Position = UDim2.new(0.5, 0, 0, 14) }, 0.5, Enum.EasingStyle.Quint)
+        end
+    end
+
+    if pill then
+        pillSub.Text = opts.PillLoadingText or "Loading..."
+        pill.Visible = true
+        pillShown = true
+        task.defer(function() tween(pill, { Position = UDim2.new(0.5, 0, 0, 14) }, 0.5, Enum.EasingStyle.Quint) end)
+    end
+
     local restPos = main.Position
 
     local function show()
         Window.Open = true
         Window.Loaded = true
+        setPill(true)
         main.Position = restPos + UDim2.fromOffset(0, 18)
-        scale.Scale = 0.95
+        scale.Scale = baseScale * 0.95
         main.Visible = true
         underline.Size = UDim2.fromOffset(0, 2)
         tween(main, { GroupTransparency = 0, Position = restPos }, 0.4, Enum.EasingStyle.Quint)
-        tween(scale, { Scale = 1 }, 0.45, Enum.EasingStyle.Quint)
+        tween(scale, { Scale = baseScale }, 0.45, Enum.EasingStyle.Quint)
         tween(underline, { Size = UDim2.fromOffset(LOGO_W, 2) }, 0.7, Enum.EasingStyle.Quint)
         task.delay(0.05, updateBar)
         task.delay(0.45, updateBar)
@@ -1742,9 +1808,10 @@ function Ducky:CreateWindow(opts)
     local function hide()
         if Window._closePicker then Window._closePicker() end
         Window.Open = false
+        setPill(false)
         restPos = main.Position
         tween(main, { GroupTransparency = 1, Position = restPos + UDim2.fromOffset(0, 12) }, 0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        tween(scale, { Scale = 0.96 }, 0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.In).Completed:Connect(function()
+        tween(scale, { Scale = baseScale * 0.96 }, 0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.In).Completed:Connect(function()
             if not Window.Open then
                 main.Visible = false
                 main.Position = restPos
@@ -1770,12 +1837,22 @@ function Ducky:CreateWindow(opts)
         if Ducky._window == Window then Ducky._window = nil end
     end
 
+    do
+        local cam = workspace.CurrentCamera
+        if cam then
+            connect(cam:GetPropertyChangedSignal("ViewportSize"), function()
+                baseScale = computeFit()
+                if Window.Open and Window.Loaded then tween(scale, { Scale = baseScale }, 0.2) end
+            end)
+        end
+    end
+
     connect(UserInputService.InputBegan, function(input, gpe)
         if not gpe and input.KeyCode == keybind then Window:Toggle() end
     end)
 
     -- floating toggle button for touch devices
-    if opts.ToggleButton == true or (opts.ToggleButton == nil and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled) then
+    if opts.ToggleButton == true then
         local tb = create("TextButton", {
             Parent = gui, Size = UDim2.fromOffset(42, 42), Position = UDim2.fromOffset(14, 72),
             BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Text = "", AutoButtonColor = false,
