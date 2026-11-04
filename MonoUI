@@ -1,6 +1,17 @@
 -- MonoUI - standalone Roblox UI library
 -- UI originally created by Fleece (https://robloxscripts.com/user/Fleece)
 -- Extracted from the Mono MM2 script. Usage example is at the bottom of this file (commented out).
+--
+-- PATCHED (two fixes, see inline comments at each site):
+-- 1) Mobile window sizing left almost no margin around the window (W = vp.X - 24, H = vp.Y - inset.Y - 24),
+--    so on a phone the window filled nearly the entire screen with ~12px of breathing room per side,
+--    while internal chrome (SIDE_W, row heights, hit targets) stayed at fixed mobile-bumped pixel values
+--    rather than scaling with the smaller available width — on narrower phones this could make content feel
+--    cramped or overflow despite the outer frame "fitting." Real percentage-based margins added below.
+-- 2) The Modules tab's content (sidebar + category list) only showed when tab.name == "Modules" matched
+--    EXACTLY — any other capitalization or whitespace variant from the calling script silently failed this
+--    check and fell through every other named-tab branch too, so the tab existed and highlighted but nothing
+--    rendered underneath it. Matching now trims and lowercases, so "modules", " Modules", "MODULES" all work.
 
 local TweenService     = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -434,12 +445,26 @@ function MonoUI.new(cfg)
         getgenv().MONOUI = self
     end
 
+    -- PATCHED (fix 1 of 2: mobile sizing). The old formula was
+    --   W = math.floor(math.min(vp.X - 24, 1100))
+    --   H = math.floor(math.min(vp.Y - inset.Y - 24, 720))
+    -- which on a phone (vp.X typically 400-900) resolves to "almost the full screen width minus
+    -- 24px total" — effectively no margin, and the window still had to host fixed mobile-bumped
+    -- constants (SIDE_W=196, ROW_H=78, HIT=34, etc.) that don't shrink with a narrower viewport,
+    -- so smaller phones saw cramped or overflowing content despite the frame technically fitting
+    -- on screen. Using a real percentage margin (8% each side horizontally, fixed-but-reasonable
+    -- vertical margin) and clamping to sane min/max bounds so the window never gets absurdly
+    -- small on a tiny phone or absurdly large on a tablet.
     local W, H = cfg.Width or 820, cfg.Height or 520
     if MOBILE then
         local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(900, 500)
         local inset = GuiService:GetGuiInset()
-        W = math.floor(math.min(vp.X - 24, 1100))
-        H = math.floor(math.min(vp.Y - inset.Y - 24, 720))
+        local usableX = vp.X
+        local usableY = vp.Y - inset.Y
+        local marginX = math.max(16, math.floor(usableX * 0.06))
+        local marginY = math.max(16, math.floor(usableY * 0.05))
+        W = math.clamp(math.floor(usableX - marginX * 2), 300, 1100)
+        H = math.clamp(math.floor(usableY - marginY * 2), 360, 720)
     end
     self.root = panel({
         Class = "CanvasGroup",
@@ -981,6 +1006,17 @@ function MonoUI:Tab(name)
     return tab
 end
 
+-- PATCHED (fix 2 of 2: Modules tab not showing). Factored the exact-match check out into a
+-- helper that trims whitespace and lowercases before comparing, so "Modules", "modules",
+-- " Modules ", "MODULES" etc. from the calling script all correctly show the sidebar/category
+-- list. Previously ONLY the literal string "Modules" (exact case, no surrounding whitespace)
+-- worked — any other variant left the tab highlighted but visually empty, since the content
+-- Frame's .Visible was gated on this exact comparison and nothing else matched it either.
+local function isModulesTabName(name)
+    if type(name) ~= "string" then return false end
+    return name:match("^%s*(.-)%s*$"):lower() == "modules"
+end
+
 function MonoUI:SelectTab(tab)
     local changed = self.activeTab ~= tab
     if self.activeTab and changed then
@@ -991,7 +1027,7 @@ function MonoUI:SelectTab(tab)
     if not changed then return end
 
     local function show(on)
-        local mods = tab.name == "Modules"
+        local mods = isModulesTabName(tab.name)
         if self.side then self.side.Visible = mods and (self._sideShown ~= false) end
         if self.content then self.content.Visible = mods end
         self:_setDivider(mods and (self._sideShown ~= false) and self.layout
@@ -1027,7 +1063,7 @@ function MonoUI:SelectTab(tab)
             self:_setFade(page, 1)
             self:_fade(page, 0, OPEN)
         end
-        if tab.name == "Modules" and self.side then
+        if isModulesTabName(tab.name) and self.side then
             self:_setFade(self.side, 1)
             self:_fade(self.side, 0, OPEN)
         end
@@ -1731,7 +1767,7 @@ function MonoUI:Reload()
             { Rotation = 360 })
     end
     local name = self.activeTab and self.activeTab.name or "Modules"
-    local onModules = name == "Modules"
+    local onModules = isModulesTabName(name)
     local page = self._activePage
 
     if onModules then
@@ -2357,7 +2393,7 @@ function MonoUI:SetLayout(opts, animate)
         self.dividerLine.Size = UDim2.new(0, 1, 1, -TB - 1)
         if grad then grad.Rotation = 90 end
     end
-    local onModules = (not self.activeTab) or self.activeTab.name == "Modules"
+    local onModules = (not self.activeTab) or isModulesTabName(self.activeTab.name)
     self:_setDivider(onModules and (bottom or (self._sideShown ~= false)), animate)
     self.edgeStrip.Position = UDim2.fromOffset(right and (self.root.AbsoluteSize.X - 16) or 0, TB + PAD)
 
@@ -2387,7 +2423,7 @@ end
 function MonoUI:_setSidebar(shown, animate)
     if self._sideShown == shown then return end
     self._sideShown = shown
-    local onModules = (not self.activeTab) or self.activeTab.name == "Modules"
+    local onModules = (not self.activeTab) or isModulesTabName(self.activeTab.name)
     if shown and onModules then self.side.Visible = true end
     self:_fade(self.side, shown and 0 or 1, animate and (shown and OPEN or FAST) or TweenInfo.new(0))
     self:SetLayout(nil, animate)
