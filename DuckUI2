@@ -54,6 +54,7 @@ local Theme = {
 -- State.
 local lucide = nil
 local logoAsset = nil
+local logoAspect = 1
 local screenGui = nil
 
 --#region helpers
@@ -217,7 +218,17 @@ local function loadLogo()
 		end
 	end)
 	local success, asset = pcall(getcustomasset, path)
-	return success and asset or nil
+	if not success then
+		return nil
+	end
+	-- Read the PNG header so the logo keeps its aspect ratio.
+	local aspect = 1
+	pcall(function()
+		local data = readfile(path)
+		local width, height = string.unpack(">I4I4", data, 17)
+		aspect = width / height
+	end)
+	return asset, aspect
 end
 
 local function getGui()
@@ -237,7 +248,7 @@ local function getGui()
 end
 
 lucide = loadLucide()
-logoAsset = loadLogo()
+logoAsset, logoAspect = loadLogo()
 
 --#endregion
 
@@ -1777,26 +1788,31 @@ function Library:CreateWindow(config)
 		Parent = root,
 	})
 
+	-- The logo is the title; text only shows if the logo failed to load.
+	local logoHeight = 44
+	local logoWidth = math.min(logoHeight * (logoAspect or 1), SIDEBAR_WIDTH - 44)
 	local logo = create("ImageLabel", {
-		Position = UDim2.fromOffset(22, 18),
-		Size = UDim2.fromOffset(32, 32),
+		Position = UDim2.fromOffset(22, 12),
+		Size = UDim2.fromOffset(logoWidth, logoHeight),
 		BackgroundTransparency = 1,
 		Image = logoAsset or "",
 		ScaleType = Enum.ScaleType.Fit,
 		Parent = window.sidebar,
 	})
-	label({
-		Position = UDim2.fromOffset(logoAsset and 64 or 22, 18),
-		Size = UDim2.new(1, -72, 0, 32),
-		Text = config.Title or "DuckyHub",
-		Font = Enum.Font.GothamBold,
-		TextSize = 20,
-		Parent = window.sidebar,
-	})
+	if not logoAsset then
+		label({
+			Position = UDim2.fromOffset(22, 18),
+			Size = UDim2.new(1, -44, 0, 32),
+			Text = config.Title or "DuckyHub",
+			Font = Enum.Font.GothamBold,
+			TextSize = 20,
+			Parent = window.sidebar,
+		})
+	end
 	task.spawn(function()
 		while logo.Parent do
-			tween(logo, 2.5, { Position = UDim2.fromOffset(22, 15) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Wait()
-			tween(logo, 2.5, { Position = UDim2.fromOffset(22, 18) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Wait()
+			tween(logo, 2.5, { Position = UDim2.fromOffset(22, 9) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Wait()
+			tween(logo, 2.5, { Position = UDim2.fromOffset(22, 12) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Wait()
 		end
 	end)
 
