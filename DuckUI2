@@ -1,5 +1,5 @@
--- DuckyUI (DuckUI2): Miracle-style UI library (DuckyHub logo + Lucide icons).
--- Load: loadstring(game:HttpGet("https://raw.githubusercontent.com/duckyontop12342/DuckyHub/refs/heads/main/DuckUI2"))()
+-- DuckyUI: Miracle-style UI library (DuckyHub logo + Lucide icons).
+-- Load: loadstring(game:HttpGet("https://raw.githubusercontent.com/duckyontop12342/DuckyHub/main/DuckyUILibrary/DuckyUI.lua"))()
 -- Needs an executor with writefile/getcustomasset/gethui (falls back gracefully).
 
 if not game:IsLoaded() then
@@ -23,7 +23,7 @@ local userInputService = cloneref(game:GetService("UserInputService"))
 local httpService = cloneref(game:GetService("HttpService"))
 local coreGui = cloneref(game:GetService("CoreGui"))
 
-local Library = { Flags = {}, Options = {}, Windows = {} }
+local Library = { Flags = {}, Options = {}, Windows = {}, Version = "2.3" }
 Library.__index = Library
 
 local Window = {}
@@ -128,8 +128,8 @@ local function label(props, children)
 		merge({
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
-			Font = Enum.Font.GothamMedium,
-			TextSize = 14,
+			Font = Enum.Font.BuilderSansMedium,
+			TextSize = 15,
 			TextColor3 = Theme.Text,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			Text = "",
@@ -150,8 +150,8 @@ local function button(props, children)
 			AutoButtonColor = false,
 			Text = "",
 			BackgroundTransparency = 1,
-			Font = Enum.Font.GothamMedium,
-			TextSize = 14,
+			Font = Enum.Font.BuilderSansMedium,
+			TextSize = 15,
 			TextColor3 = Theme.Text,
 		}, props),
 		children
@@ -307,7 +307,7 @@ function Library:Notify(config)
 		Position = UDim2.fromOffset(24, 0),
 		Size = UDim2.new(1, -24, 1, 0),
 		Text = config.Title or "Notification",
-		Font = Enum.Font.GothamBold,
+		Font = Enum.Font.BuilderSansBold,
 		Parent = head,
 	})
 	if config.Content then
@@ -317,7 +317,7 @@ function Library:Notify(config)
 			Text = config.Content,
 			TextWrapped = true,
 			TextColor3 = Theme.TextSub,
-			TextSize = 13,
+			TextSize = 14,
 			LayoutOrder = 2,
 			Parent = body,
 		})
@@ -589,7 +589,7 @@ function Container:AddToggle(config)
 			label({
 				Size = UDim2.new(1, 0, 0, 26),
 				Text = config.Name,
-				Font = Enum.Font.GothamBold,
+				Font = Enum.Font.BuilderSansBold,
 				TextColor3 = Theme.TextSub,
 				LayoutOrder = -1,
 				Parent = popup.Content,
@@ -629,8 +629,8 @@ function Container:AddSlider(config)
 		Position = UDim2.new(1, 0, 0, 8),
 		Size = UDim2.fromOffset(70, 20),
 		BackgroundTransparency = 1,
-		Font = Enum.Font.GothamMedium,
-		TextSize = 14,
+		Font = Enum.Font.BuilderSansMedium,
+		TextSize = 15,
 		TextColor3 = Theme.Text,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		ClearTextOnFocus = false,
@@ -952,8 +952,8 @@ function Container:AddColorPicker(config)
 			Size = UDim2.new(1, 0, 0, 30),
 			BackgroundColor3 = Theme.Element,
 			BorderSizePixel = 0,
-			Font = Enum.Font.GothamMedium,
-			TextSize = 13,
+			Font = Enum.Font.BuilderSansMedium,
+			TextSize = 14,
 			TextColor3 = Theme.Text,
 			ClearTextOnFocus = false,
 			LayoutOrder = 3,
@@ -1037,7 +1037,7 @@ function Container:AddKeybind(config)
 		Size = UDim2.fromOffset(92, 28),
 		BackgroundTransparency = 0,
 		BackgroundColor3 = Theme.Element,
-		TextSize = 13,
+		TextSize = 14,
 		Parent = row,
 	}, { corner(8) })
 	local keyStroke = stroke(Theme.Stroke)
@@ -1106,8 +1106,8 @@ function Container:AddTextbox(config)
 		Size = UDim2.new(0.58, 0, 0, 30),
 		BackgroundColor3 = Theme.Element,
 		BorderSizePixel = 0,
-		Font = Enum.Font.GothamMedium,
-		TextSize = 13,
+		Font = Enum.Font.BuilderSansMedium,
+		TextSize = 14,
 		TextColor3 = Theme.Text,
 		PlaceholderText = config.Placeholder or "",
 		PlaceholderColor3 = Theme.TextDim,
@@ -1444,6 +1444,11 @@ function Window:selectTab(tab, subTab, instant)
 		self:setCrumbs(tab.name, subTab.name)
 		self.searchBox.Text = ""
 		self:showPage(subTab.page, instant)
+	else
+		self.dropdownText.Text = "None"
+		self:setCrumbs(tab.name, "None")
+		self.searchBox.Text = ""
+		self:showPage(tab.emptyPage, instant)
 	end
 end
 
@@ -1457,7 +1462,7 @@ function Window:updateSearch(query)
 		return
 	end
 
-	for _, child in self.searchPage:GetChildren() do
+	for _, child in self.searchInner:GetChildren() do
 		if child:IsA("GuiObject") then
 			child:Destroy()
 		end
@@ -1471,14 +1476,14 @@ function Window:updateSearch(query)
 				BackgroundTransparency = 0,
 				BackgroundColor3 = Theme.Panel,
 				LayoutOrder = count,
-				Parent = self.searchPage,
+				Parent = self.searchInner,
 			}, { corner(10) })
 			label({ Position = UDim2.fromOffset(16, 7), Size = UDim2.new(1, -50, 0, 18), Text = entry.Name, Parent = result })
 			label({
 				Position = UDim2.fromOffset(16, 26),
 				Size = UDim2.new(1, -50, 0, 16),
 				Text = entry.Tab.name .. "  ›  " .. entry.SubTab.name,
-				TextSize = 12,
+				TextSize = 13,
 				TextColor3 = Theme.TextDim,
 				Parent = result,
 			})
@@ -1507,7 +1512,7 @@ function Window:updateSearch(query)
 			Size = UDim2.new(1, 0, 0, 40),
 			Text = "No results for \"" .. query .. "\"",
 			TextColor3 = Theme.TextDim,
-			Parent = self.searchPage,
+			Parent = self.searchInner,
 		})
 	end
 	self:setCrumbs("Search", query)
@@ -1609,6 +1614,17 @@ function Window:AddTab(config)
 		self:selectTab(tab)
 	end)
 
+	tab.emptyPage = frame({ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = self.holder })
+	label({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.45),
+		Size = UDim2.fromOffset(300, 24),
+		Text = "Nothing here yet",
+		TextColor3 = Theme.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Parent = tab.emptyPage,
+	})
+
 	table.insert(self.tabs, tab)
 	if index == 1 then
 		task.defer(function()
@@ -1638,19 +1654,26 @@ function Tab:AddSubTab(name)
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		Visible = false,
 		Parent = window.holder,
-	}, { padding(16, 4, 16, 18) })
+	})
+	local inner = frame({
+		Position = UDim2.fromOffset(16, 4),
+		Size = UDim2.new(1, -32, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Parent = subTab.page,
+	}, { padding(0, 0, 0, 18) })
 	subTab.left = frame({
 		Size = UDim2.new(0.5, -9, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
-		Parent = subTab.page,
+		Parent = inner,
 	}, { listLayout(14) })
 	subTab.right = frame({
 		Position = UDim2.new(0.5, 9, 0, 0),
 		Size = UDim2.new(0.5, -9, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
-		Parent = subTab.page,
+		Parent = inner,
 	}, { listLayout(14) })
 
 	table.insert(self.subTabs, subTab)
@@ -1688,7 +1711,7 @@ function SubTab:AddSection(config)
 	label({
 		Size = UDim2.new(1, 0, 0, 22),
 		Text = config.Name,
-		TextColor3 = Theme.TextSub,
+		TextColor3 = Color3.fromRGB(205, 205, 210),
 		LayoutOrder = 0,
 		Parent = section,
 	})
@@ -1789,7 +1812,7 @@ function Library:CreateWindow(config)
 		Parent = root,
 	})
 
-	-- The logo is the title; text only shows if the logo failed to load.
+	-- The logo is the title. No text title exists.
 	local logoWidth = config.LogoWidth or (SIDEBAR_WIDTH - 44)
 	local logoHeight = math.clamp(logoWidth / (logoAspect or 1), 28, 64)
 	logoWidth = math.min(logoWidth, logoHeight * (logoAspect or 1))
@@ -1801,16 +1824,6 @@ function Library:CreateWindow(config)
 		ScaleType = Enum.ScaleType.Fit,
 		Parent = window.sidebar,
 	})
-	if not logoAsset then
-		label({
-			Position = UDim2.fromOffset(22, 18),
-			Size = UDim2.new(1, -44, 0, 32),
-			Text = config.Title or "DuckyHub",
-			Font = Enum.Font.GothamBold,
-			TextSize = 20,
-			Parent = window.sidebar,
-		})
-	end
 	task.spawn(function()
 		while logo.Parent do
 			tween(logo, 2.5, { Position = UDim2.fromOffset(22, 31 - logoHeight / 2) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Wait()
@@ -1837,8 +1850,8 @@ function Library:CreateWindow(config)
 		Position = UDim2.fromOffset(40, 0),
 		Size = UDim2.new(1, -72, 1, 0),
 		BackgroundTransparency = 1,
-		Font = Enum.Font.GothamMedium,
-		TextSize = 14,
+		Font = Enum.Font.BuilderSansMedium,
+		TextSize = 15,
 		TextColor3 = Theme.Text,
 		PlaceholderText = "Search",
 		PlaceholderColor3 = Theme.TextDim,
@@ -1918,7 +1931,7 @@ function Library:CreateWindow(config)
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
 			Size = UDim2.fromOffset(20, 20),
-			ImageColor3 = Theme.TextSub,
+			ImageColor3 = Color3.fromRGB(132, 132, 140),
 			Parent = holder,
 		})
 		return holder, glyph
@@ -2010,12 +2023,22 @@ function Library:CreateWindow(config)
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		Visible = false,
 		Parent = window.holder,
-	}, { listLayout(8), padding(16, 4, 16, 16) })
+	})
+	window.searchInner = frame({
+		Position = UDim2.fromOffset(16, 4),
+		Size = UDim2.new(1, -32, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Parent = window.searchPage,
+	}, { listLayout(8), padding(0, 0, 0, 16) })
 
 	-- Top bar behaviour.
 	dropdownButton.MouseButton1Click:Connect(function()
 		local tab = window.activeTab
 		if not tab then
+			return
+		end
+		if #tab.subTabs == 0 then
 			return
 		end
 		local names, byName = {}, {}
@@ -2040,7 +2063,7 @@ function Library:CreateWindow(config)
 			return
 		end
 		local popup = window:openPopup(settingsButton, 260, "right")
-		label({ Size = UDim2.new(1, 0, 0, 26), Text = "Menu Settings", Font = Enum.Font.GothamBold, TextColor3 = Theme.TextSub, Parent = popup.Content })
+		label({ Size = UDim2.new(1, 0, 0, 26), Text = "Menu Settings", Font = Enum.Font.BuilderSansBold, TextColor3 = Theme.TextSub, Parent = popup.Content })
 		local menu = Container.new(window, popup.Content, nil, popup.bin)
 		menu:AddKeybind({
 			Name = "Menu Keybind",
@@ -2078,7 +2101,7 @@ function Library:CreateWindow(config)
 			return
 		end
 		local popup = window:openPopup(folderButton, 270, "left")
-		label({ Size = UDim2.new(1, 0, 0, 26), Text = "Configs", Font = Enum.Font.GothamBold, TextColor3 = Theme.TextSub, Parent = popup.Content })
+		label({ Size = UDim2.new(1, 0, 0, 26), Text = "Configs", Font = Enum.Font.BuilderSansBold, TextColor3 = Theme.TextSub, Parent = popup.Content })
 		local configs = Container.new(window, popup.Content, nil, popup.bin)
 		local nameBox = configs:AddTextbox({ Name = "Config Name", Flag = false, Default = "default" })
 		local picker = configs:AddDropdown({ Name = "Saved Configs", Flag = false, Values = Library:ListConfigs() })
