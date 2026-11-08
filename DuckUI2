@@ -1,4 +1,5 @@
--- DuckyUI: Miracle-style UI library (DuckyHub logo + Lucide icons).
+-- DuckyUI (DuckUI2): Miracle-style UI library (DuckyHub logo + Lucide icons).
+-- Load: loadstring(game:HttpGet("https://raw.githubusercontent.com/duckyontop12342/DuckyHub/refs/heads/main/DuckUI2"))()
 -- Needs an executor with writefile/getcustomasset/gethui (falls back gracefully).
 
 if not game:IsLoaded() then
@@ -1789,10 +1790,11 @@ function Library:CreateWindow(config)
 	})
 
 	-- The logo is the title; text only shows if the logo failed to load.
-	local logoHeight = 44
-	local logoWidth = math.min(logoHeight * (logoAspect or 1), SIDEBAR_WIDTH - 44)
+	local logoWidth = config.LogoWidth or (SIDEBAR_WIDTH - 44)
+	local logoHeight = math.clamp(logoWidth / (logoAspect or 1), 28, 64)
+	logoWidth = math.min(logoWidth, logoHeight * (logoAspect or 1))
 	local logo = create("ImageLabel", {
-		Position = UDim2.fromOffset(22, 12),
+		Position = UDim2.fromOffset(22, 34 - logoHeight / 2),
 		Size = UDim2.fromOffset(logoWidth, logoHeight),
 		BackgroundTransparency = 1,
 		Image = logoAsset or "",
@@ -1811,8 +1813,8 @@ function Library:CreateWindow(config)
 	end
 	task.spawn(function()
 		while logo.Parent do
-			tween(logo, 2.5, { Position = UDim2.fromOffset(22, 9) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Wait()
-			tween(logo, 2.5, { Position = UDim2.fromOffset(22, 12) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Wait()
+			tween(logo, 2.5, { Position = UDim2.fromOffset(22, 31 - logoHeight / 2) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Wait()
+			tween(logo, 2.5, { Position = UDim2.fromOffset(22, 34 - logoHeight / 2) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut):Wait()
 		end
 	end)
 
@@ -1905,23 +1907,24 @@ function Library:CreateWindow(config)
 		Parent = root,
 	})
 
-	local folderButton = icon("folder-plus", {
-		Position = UDim2.fromOffset(16, 16),
-		Size = UDim2.fromOffset(44, 44),
-		BackgroundTransparency = 0,
-		BackgroundColor3 = Theme.Panel,
-		ImageColor3 = Theme.TextSub,
-		Parent = content,
-	}, "ImageButton")
-	create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = folderButton })
-	folderButton.ScaleType = Enum.ScaleType.Fit
-	create("UIPadding", {
-		PaddingLeft = UDim.new(0, 12),
-		PaddingRight = UDim.new(0, 12),
-		PaddingTop = UDim.new(0, 12),
-		PaddingBottom = UDim.new(0, 12),
-		Parent = folderButton,
-	})
+	-- Square icon buttons: glyph is a centered child so it keeps its 20px size.
+	local function iconButton(name, props)
+		local holder = button(merge({
+			Size = UDim2.fromOffset(44, 44),
+			BackgroundTransparency = 0,
+			BackgroundColor3 = Theme.Panel,
+		}, props), { corner(12) })
+		local glyph = icon(name, {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(20, 20),
+			ImageColor3 = Theme.TextSub,
+			Parent = holder,
+		})
+		return holder, glyph
+	end
+
+	local folderButton = iconButton("folder-plus", { Position = UDim2.fromOffset(16, 16), Parent = content })
 
 	local dropdownButton = button({
 		Position = UDim2.fromOffset(72, 16),
@@ -1945,23 +1948,10 @@ function Library:CreateWindow(config)
 		Parent = dropdownButton,
 	})
 
-	local settingsButton = icon("settings", {
+	local settingsButton, settingsGlyph = iconButton("settings", {
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -16, 0, 16),
-		Size = UDim2.fromOffset(44, 44),
-		BackgroundTransparency = 0,
-		BackgroundColor3 = Theme.Panel,
-		ImageColor3 = Theme.TextSub,
-		ScaleType = Enum.ScaleType.Fit,
 		Parent = content,
-	}, "ImageButton")
-	create("UICorner", { CornerRadius = UDim.new(0, 12), Parent = settingsButton })
-	create("UIPadding", {
-		PaddingLeft = UDim.new(0, 12),
-		PaddingRight = UDim.new(0, 12),
-		PaddingTop = UDim.new(0, 12),
-		PaddingBottom = UDim.new(0, 12),
-		Parent = settingsButton,
 	})
 
 	for _, control in { folderButton, dropdownButton, settingsButton } do
@@ -1973,10 +1963,10 @@ function Library:CreateWindow(config)
 		end)
 	end
 	settingsButton.MouseEnter:Connect(function()
-		tween(settingsButton, 0.4, { Rotation = 60 }, Enum.EasingStyle.Back)
+		tween(settingsGlyph, 0.4, { Rotation = 60 }, Enum.EasingStyle.Back)
 	end)
 	settingsButton.MouseLeave:Connect(function()
-		tween(settingsButton, 0.4, { Rotation = 0 })
+		tween(settingsGlyph, 0.4, { Rotation = 0 })
 	end)
 
 	-- Breadcrumb.
