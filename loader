@@ -1,0 +1,100 @@
+if not shared then return warn("No shared, no script.") end
+if shared.Loader then pcall(shared.Loader.stop) end
+
+local Loader = {}
+shared.Loader = Loader
+
+local httpService = game:GetService("HttpService")
+local placeId = game.PlaceId
+local poll_interval = 15
+local maxBackoff = 120
+local accent = Color3.fromRGB(255, 70, 160)
+local bg = Color3.fromRGB(24, 24, 28)
+local fg = Color3.fromRGB(235, 235, 240)
+
+local function defrag(parts)
+	for i = 1, #parts do
+		parts[i] = parts[i]:reverse()
+	end
+	return table.concat(parts)
+end
+
+local REGISTRY = {
+	[6403373529] = {
+		name = "Bedwars",
+		urlRaw = defrag({ "d.tcetorpaul.ndc//:sptth", "c26-03ea3427/1697f8/p/ve", "1622c9058705-4c08-2454-0" }),
+	},
+	[18668065416] = {
+		name = "FUT",
+		urlRaw = defrag({ "tnetnocresubuhtig.war//:sptth", "TUF.ykcuD/EMYBSTPIRCSAUL/moc.", "weNTUF.ykcuD/niam/sdaeh/sfer/" }),
+	},
+	[70539431141054] = {
+		name = "RFL",
+		urlRaw = defrag({ ".tnetnocresubuhtig.war//:sptth", "r.lol.ykcuD/EMYBSTPIRCSAUL/moc", "wlfrykcuD/niam/sdaeh/sfer/lf" }),
+	},
+}
+
+local entry = REGISTRY[placeId]
+local gameName = game.Name ~= "" and game.Name or ("Place " .. placeId)
+
+local ui = {}
+
+local function round(inst, radius)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, radius)
+	corner.Parent = inst
+end
+
+local function build()
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "LoaderUI"
+	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.Parent = gethui and gethui() or game:GetService("CoreGui")
+
+	local frame = Instance.new("Frame")
+	frame.AnchorPoint = Vector2.new(0.5, 1)
+	frame.Position = UDim2.new(0.5, 0, 1, -40)
+	frame.Size = UDim2.new(0, 340, 0, 110)
+	frame.BackgroundColor3 = bg
+	frame.BorderSizePixel = 0
+	frame.Parent = gui
+	round(frame, 10)
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = accent
+	stroke.Thickness = 1.2
+	stroke.Transparency = 0.3
+	stroke.Parent = frame
+
+	local title = Instance.new("TextLabel")
+	title.BackgroundTransparency = 1
+	title.Position = UDim2.new(0, 14, 0, 10)
+	title.Size = UDim2.new(1, -28, 0, 20)
+	title.Font = Enum.Font.GothamBold
+	title.TextSize = 15
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.TextColor3 = accent
+	title.Text = "Loader"
+	title.Parent = frame
+
+	local message = Instance.new("TextLabel")
+	message.BackgroundTransparency = 1
+	message.Position = UDim2.new(0, 14, 0, 32)
+	message.Size = UDim2.new(1, -28, 0, 40)
+	message.Font = Enum.Font.Gotham
+	message.TextSize = 13
+	message.TextWrapped = true
+	message.TextXAlignment = Enum.TextXAlignment.Left
+	message.TextYAlignment = Enum.TextYAlignment.Top
+	message.TextColor3 = fg
+	message.Text = "Loading..."
+	message.Parent = frame
+
+	local buttonRow = Instance.new("Frame")
+	buttonRow.BackgroundTransparency = 1
+	buttonRow.Position = UDim2.new(0, 14, 1, -36)
+	buttonRow.Size = UDim2.new(1, -28, 0, 26)
+	buttonRow.Visible = false
+	buttonRow.Parent = frame
