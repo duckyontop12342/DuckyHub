@@ -18,35 +18,60 @@ local fg = Color3.fromRGB(235, 235, 240)
 local muted = Color3.fromRGB(160, 160, 170)
 
 local function try(fn, ...)
+	if type(fn) ~= "function" then return nil end
 	local ok, result = pcall(fn, ...)
 	if ok then return result end
 	return nil
 end
 
-local function defrag(parts)
-	for i = 1, #parts do
-		parts[i] = parts[i]:reverse()
-	end
-	return table.concat(parts)
-end
+local spawnFn = (type(task) == "table" and task.spawn) or spawn
+local waitFn = (type(task) == "table" and task.wait) or wait
+local delayFn = (type(task) == "table" and task.delay) or delay
+local cancelFn = (type(task) == "table" and task.cancel) or nil
 
 local REGISTRY = {
 	[6403373529] = {
 		name = "Bedwars",
-		urlRaw = defrag({ "d.tcetorpaul.ndc//:sptth", "c26-03ea3427/1697f8/p/ve", "1622c9058705-4c08-2454-0" }),
+		urlRaw = "https://cdn.luaprotect.dev/p/8f7961/7243ae30-62c0-4542-80c4-5078509c2261",
 	},
 	[18668065416] = {
 		name = "FUT",
-		urlRaw = defrag({ "tnetnocresubuhtig.war//:sptth", "TUF.ykcuD/EMYBSTPIRCSAUL/moc.", "weNTUF.ykcuD/niam/sdaeh/sfer/" }),
+		urlRaw = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.FUT/refs/heads/main/Ducky.FUTNew",
 	},
 	[70539431141054] = {
 		name = "RFL",
-		urlRaw = defrag({ ".tnetnocresubuhtig.war//:sptth", "r.lol.ykcuD/EMYBSTPIRCSAUL/moc", "wlfrykcuD/niam/sdaeh/sfer/lf" }),
+		urlRaw = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.lol.rfl/refs/heads/main/Duckyrflw",
 	},
 }
 
+local lucideUrl = "https://raw.githubusercontent.com/mstudio45/lucide-roblox-direct/refs/heads/main/source.lua"
+local lucideSupported = (type(writefile) == "function")
+	and (type(isfolder) == "function")
+	and (type(makefolder) == "function")
+	and (type(getcustomasset) == "function")
+
+local Lucide = nil
+if lucideSupported then
+	Lucide = try(function()
+		local src = game:HttpGet(lucideUrl)
+		local fn = loadstring(src)
+		if type(fn) ~= "function" then return nil end
+		return fn()
+	end)
+end
+
+local function setIcon(imageLabel, name)
+	if not Lucide or type(Lucide.GetAsset) ~= "function" then return false end
+	local asset = try(Lucide.GetAsset, name)
+	if not asset then return false end
+	imageLabel.Image = asset.Url
+	imageLabel.ImageRectSize = asset.ImageRectSize
+	imageLabel.ImageRectOffset = asset.ImageRectOffset
+	return true
+end
+
 local entry = REGISTRY[placeId]
-local gameName = (try(function() return game.Name end) or "") ~= "" and game.Name or ("Place " .. placeId)
+local gameName = (try(function() return game.Name end) or "") ~= "" and game.Name or ("Place " .. tostring(placeId))
 
 local ui = {}
 
@@ -57,44 +82,14 @@ local function round(inst, radius)
 	return corner
 end
 
+local function tween(inst, info, props)
+	local t = try(tweenService.Create, tweenService, inst, info, props)
+	if t then try(t.Play, t) end
+	return t
+end
+
 local function safeParent()
 	local hui = try(function() return gethui and gethui() end)
 	if hui then return hui end
-	return try(function() return game:GetService("CoreGui") end) or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-end
-
-local function build()
-	local gui = Instance.new("ScreenGui")
-	gui.Name = "LoaderUI"
-	gui.ResetOnSpawn = false
-	gui.IgnoreGuiInset = true
-	gui.DisplayOrder = 999
-	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	gui.Parent = safeParent()
-
-	local frame = Instance.new("Frame")
-	frame.AnchorPoint = Vector2.new(0.5, 1)
-	frame.Position = UDim2.new(0.5, 0, 1, 20)
-	frame.Size = UDim2.new(0, 360, 0, 118)
-	frame.BackgroundColor3 = bg
-	frame.BorderSizePixel = 0
-	frame.ClipsDescendants = false
-	frame.Parent = gui
-	round(frame, 14)
-
-	local gradientFrame = Instance.new("UIGradient")
-	gradientFrame.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, bg2),
-		ColorSequenceKeypoint.new(1, bg),
-	})
-	gradientFrame.Rotation = 90
-	gradientFrame.Parent = frame
-
-	local shadow = Instance.new("ImageLabel")
-	shadow.BackgroundTransparency = 1
-	shadow.Image = "rbxassetid://6014261993"
-	shadow.ImageColor3 = Color3.new(0, 0, 0)
-	shadow.ImageTransparency = 0.45
-	shadow.ScaleType = Enum.ScaleType.Slice
-	shadow.SliceCenter = Rect.new(49, 49, 450, 450)
-	shadow.Size = UDim2.new(1, 50, 1, 50)
+	local coreGui = try(function() return game:GetService("CoreGui") end)
+	if coreGui then return coreGui end
