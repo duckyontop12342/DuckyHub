@@ -4,39 +4,21 @@ if shared.Loader then pcall(shared.Loader.stop) end
 local Loader = {}
 shared.Loader = Loader
 
-local httpService = game:GetService("HttpService")
+-- Services.
 local tweenService = game:GetService("TweenService")
-local placeId = game.PlaceId
-local poll_interval = 15
-local maxBackoff = 120
+local userInputService = game:GetService("UserInputService")
 
-local SAFE_MODE = true
-
-local accent1 = Color3.fromRGB(255, 70, 160)
-local accent2 = Color3.fromRGB(150, 70, 255)
-local bg = Color3.fromRGB(20, 20, 24)
-local bg2 = Color3.fromRGB(28, 28, 34)
-local fg = Color3.fromRGB(235, 235, 240)
-local muted = Color3.fromRGB(160, 160, 170)
-
-local function try(fn, ...)
-	if type(fn) ~= "function" then return nil end
-	local ok, result = pcall(fn, ...)
-	if ok then return result end
-	return nil
-end
-
-local spawnFn = (type(task) == "table" and task.spawn) or spawn
-local waitFn = (type(task) == "table" and task.wait) or wait
-local delayFn = (type(task) == "table" and task.delay) or delay
-local cancelFn = (type(task) == "table" and task.cancel) or nil
+-- Constants.
+local POLL_INTERVAL = 15
+local MAX_BACKOFF = 120
+local LUCIDE_URL = "https://raw.githubusercontent.com/mstudio45/lucide-roblox-direct/refs/heads/main/source.lua"
 
 local REGISTRY = {
 	[6403373529] = {
 		name = "Bedwars",
 		urlRaw = "https://cdn.luaprotect.dev/p/8f7961/7243ae30-62c0-4542-80c4-5078509c2261",
 	},
-	[88033955914813] = {
+	[18668065416] = {
 		name = "FUT",
 		urlRaw = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.FUT/refs/heads/main/Ducky.FUTNew",
 	},
@@ -46,42 +28,87 @@ local REGISTRY = {
 	},
 }
 
-local lucideUrl = "https://raw.githubusercontent.com/mstudio45/lucide-roblox-direct/refs/heads/main/source.lua"
-local lucideSupported = (type(writefile) == "function")
-	and (type(isfolder) == "function")
-	and (type(makefolder) == "function")
-	and (type(getcustomasset) == "function")
+local THEME = {
+	root = Color3.fromRGB(24, 24, 24),
+	panel = Color3.fromRGB(30, 30, 30),
+	inset = Color3.fromRGB(28, 28, 28),
+	stroke = Color3.fromRGB(40, 40, 40),
+	text = Color3.fromRGB(255, 255, 255),
+	sub = Color3.fromRGB(150, 150, 150),
+	dim = Color3.fromRGB(108, 108, 108),
+	track = Color3.fromRGB(52, 52, 52),
+	fill = Color3.fromRGB(205, 205, 205),
+	ok = Color3.fromRGB(110, 200, 140),
+	bad = Color3.fromRGB(255, 92, 92),
+}
+
+local FAST = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local EASE = TweenInfo.new(0.26, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+-- State.
+local placeId = game.PlaceId
+local entry = REGISTRY[placeId]
+local running = true
+local busy = false
+local lastHash = nil
+local pendingBody = nil
+local connections = {}
+local ui = {}
+
+local spawnFn = (type(task) == "table" and task.spawn) or spawn
+local waitFn = (type(task) == "table" and task.wait) or wait
+
+---Run fn protected, returning its result or nil.
+local function try(fn, ...)
+	if type(fn) ~= "function" then return nil end
+	local ok, result = pcall(fn, ...)
+	if ok then return result end
+	return nil
+end
+
+local gameName = try(function() return game.Name end)
+if type(gameName) ~= "string" or gameName == "" then
+	gameName = "Place " .. tostring(placeId)
+end
 
 local Lucide = nil
-if lucideSupported and not SAFE_MODE then
+if type(writefile) == "function" and type(isfolder) == "function"
+	and type(makefolder) == "function" and type(getcustomasset) == "function" then
 	Lucide = try(function()
-		local src = game:HttpGet(lucideUrl)
-		local fn = loadstring(src)
-		if type(fn) ~= "function" then return nil end
-		return fn()
+		local fn = loadstring(game:HttpGet(LUCIDE_URL))
+		return type(fn) == "function" and fn() or nil
 	end)
 end
 
-local function setIcon(imageLabel, name)
+---Apply a Lucide icon to an ImageLabel/ImageButton.
+---@return boolean
+local function setIcon(image, name)
 	if not Lucide or type(Lucide.GetAsset) ~= "function" then return false end
 	local asset = try(Lucide.GetAsset, name)
 	if not asset then return false end
-	imageLabel.Image = asset.Url
-	imageLabel.ImageRectSize = asset.ImageRectSize
-	imageLabel.ImageRectOffset = asset.ImageRectOffset
+	image.Image = asset.Url
+	image.ImageRectSize = asset.ImageRectSize
+	image.ImageRectOffset = asset.ImageRectOffset
 	return true
 end
 
-local entry = REGISTRY[placeId]
-local gameName = (try(function() return game.Name end) or "") ~= "" and game.Name or ("Place " .. tostring(placeId))
-
-local ui = {}
+---Create an instance with props and an optional parent.
+local function new(class, props, parent)
+	local inst = Instance.new(class)
+	for key, value in pairs(props or {}) do inst[key] = value end
+	if parent then inst.Parent = parent end
+	return inst
+end
 
 local function round(inst, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = inst
-	return corner
+	return new("UICorner", { CornerRadius = UDim.new(0, radius) }, inst)
+end
+
+local function outline(inst, transparency)
+	return new("UIStroke", {
+		Color = THEME.stroke, Thickness = 1, Transparency = transparency or 0.3,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	}, inst)
 end
 
 local function tween(inst, info, props)
@@ -90,386 +117,329 @@ local function tween(inst, info, props)
 	return t
 end
 
+local function label(props, parent)
+	local base = {
+		BackgroundTransparency = 1, Font = Enum.Font.BuilderSans, TextColor3 = THEME.text,
+		TextXAlignment = Enum.TextXAlignment.Left, TextSize = 15,
+	}
+	for key, value in pairs(props) do base[key] = value end
+	return new("TextLabel", base, parent)
+end
+
+---Pick the safest GUI container the executor offers.
 local function safeParent()
 	local hui = try(function() return gethui and gethui() end)
-	if hui then return hui end
+	if typeof(hui) == "Instance" then return hui end
 	local coreGui = try(function() return game:GetService("CoreGui") end)
 	if coreGui then return coreGui end
-	local player = try(function() return game:GetService("Players").LocalPlayer end)
-	if player then return try(function() return player:WaitForChild("PlayerGui") end) end
-	return nil
+	local localPlayer = game:GetService("Players").LocalPlayer
+	return localPlayer and localPlayer:WaitForChild("PlayerGui")
 end
 
-local function build()
-	local gui = Instance.new("ScreenGui")
-	gui.Name = "LoaderUI"
-	gui.ResetOnSpawn = false
-	gui.IgnoreGuiInset = true
-	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	try(function() gui.DisplayOrder = 999 end)
+---Cheap content fingerprint for update detection.
+local function fingerprint(body)
+	local sum = #body
+	for i = 1, #body, 97 do
+		sum = (sum * 31 + body:byte(i)) % 4294967291
+	end
+	return string.format("%x-%x", #body, sum)
+end
+
+---Fetch a URL bypassing CDN caches where possible.
+---@return string?, string?
+local function fetch(url)
+	local target = url
+	if url:find("raw.githubusercontent.com", 1, true) then
+		target = url .. "?cb=" .. tostring(os.time()) .. tostring(math.random(1000, 9999))
+	end
+
+	if type(request) == "function" then
+		local ok, res = pcall(request, {
+			Url = target, Method = "GET",
+			Headers = { ["Cache-Control"] = "no-cache", ["Pragma"] = "no-cache" },
+		})
+		if ok and type(res) == "table" then
+			if res.StatusCode == 200 and type(res.Body) == "string" and #res.Body > 0 then
+				return res.Body
+			end
+			return nil, "HTTP " .. tostring(res.StatusCode)
+		end
+	end
+
+	local ok, body = pcall(game.HttpGet, game, target, true)
+	if ok and type(body) == "string" and #body > 0 then return body end
+	return nil, tostring(body)
+end
+
+-- UI.
+
+local function buildUi()
+	local gui = new("ScreenGui", {
+		Name = tostring(math.random(1e6, 1e7)), ResetOnSpawn = false,
+		IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	})
+	for _, name in ipairs({ "protect_gui", "protectgui" }) do
+		local fn = (type(syn) == "table" and syn[name]) or getfenv()[name]
+		if type(fn) == "function" and pcall(fn, gui) then break end
+	end
 	gui.Parent = safeParent()
 
-	local frame = Instance.new("Frame")
-	frame.AnchorPoint = Vector2.new(0.5, 1)
-	frame.Position = UDim2.new(0.5, 0, 1, 20)
-	frame.Size = UDim2.new(0, 360, 0, 118)
-	frame.BackgroundColor3 = bg
-	frame.BorderSizePixel = 0
-	frame.Parent = gui
-	round(frame, 14)
+	local root = new("CanvasGroup", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(360, 176), BackgroundColor3 = THEME.root,
+		BorderSizePixel = 0, GroupTransparency = 1,
+	}, gui)
+	round(root, 10)
+	outline(root, 0.3)
 
-	local gradientFrame = Instance.new("UIGradient")
-	gradientFrame.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, bg2),
-		ColorSequenceKeypoint.new(1, bg),
-	})
-	gradientFrame.Rotation = 90
-	gradientFrame.Parent = frame
+	local header = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 56), BackgroundTransparency = 1,
+	}, root)
 
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 1.3
-	stroke.Transparency = 0.15
-	stroke.Parent = frame
+	local logo = new("ImageLabel", {
+		Position = UDim2.fromOffset(18, 16), Size = UDim2.fromOffset(24, 24),
+		BackgroundTransparency = 1, ImageColor3 = THEME.fill,
+	}, header)
+	if not setIcon(logo, "zap") then logo:Destroy() end
+	local textX = logo.Parent and 50 or 20
 
-	local strokeGradient = Instance.new("UIGradient")
-	strokeGradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, accent1),
-		ColorSequenceKeypoint.new(1, accent2),
-	})
-	strokeGradient.Parent = stroke
+	label({
+		Text = "DUCKY HUB", Font = Enum.Font.BuilderSansBold, TextSize = 17,
+		Position = UDim2.fromOffset(textX, 9), Size = UDim2.new(1, -90, 0, 20),
+	}, header)
+	label({
+		Text = entry and entry.name or gameName, TextSize = 13, TextColor3 = THEME.dim,
+		Position = UDim2.fromOffset(textX, 29), Size = UDim2.new(1, -90, 0, 16),
+	}, header)
 
-	local accentBar = Instance.new("Frame")
-	accentBar.BackgroundColor3 = accent1
-	accentBar.BorderSizePixel = 0
-	accentBar.Position = UDim2.new(0, 0, 0, 0)
-	accentBar.Size = UDim2.new(1, 0, 0, 3)
-	accentBar.Parent = frame
-	round(accentBar, 14)
-
-	local accentBarGradient = Instance.new("UIGradient")
-	accentBarGradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, accent1),
-		ColorSequenceKeypoint.new(1, accent2),
-	})
-	accentBarGradient.Parent = accentBar
-
-	local titleRow = Instance.new("Frame")
-	titleRow.BackgroundTransparency = 1
-	titleRow.Position = UDim2.new(0, 16, 0, 14)
-	titleRow.Size = UDim2.new(1, -32, 0, 18)
-	titleRow.Parent = frame
-
-	local icon = Instance.new("ImageLabel")
-	icon.BackgroundTransparency = 1
-	icon.Size = UDim2.new(0, 16, 0, 16)
-	icon.Position = UDim2.new(0, 0, 0.5, 0)
-	icon.AnchorPoint = Vector2.new(0, 0.5)
-	icon.ImageColor3 = accent1
-	icon.Parent = titleRow
-	if not setIcon(icon, "zap") then
-		icon.Size = UDim2.new(0, 8, 0, 8)
-		icon.BackgroundTransparency = 0
-		icon.BackgroundColor3 = accent1
-		icon.BorderSizePixel = 0
-		round(icon, 4)
+	local close = new("TextButton", {
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 12),
+		Size = UDim2.fromOffset(32, 32), BackgroundTransparency = 1, Text = "",
+		AutoButtonColor = false,
+	}, header)
+	local closeIcon = new("ImageLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(22, 22), BackgroundTransparency = 1, ImageColor3 = THEME.dim,
+	}, close)
+	if not setIcon(closeIcon, "x") then
+		closeIcon:Destroy()
+		closeIcon = label({
+			Text = "x", TextSize = 18, TextColor3 = THEME.dim, Size = UDim2.fromScale(1, 1),
+			TextXAlignment = Enum.TextXAlignment.Center,
+		}, close)
 	end
+	local function tintClose(color)
+		tween(closeIcon, FAST, closeIcon:IsA("ImageLabel") and { ImageColor3 = color } or { TextColor3 = color })
+	end
+	table.insert(connections, close.MouseEnter:Connect(function() tintClose(THEME.bad) end))
+	table.insert(connections, close.MouseLeave:Connect(function() tintClose(THEME.dim) end))
+	table.insert(connections, close.MouseButton1Click:Connect(function() Loader.stop() end))
 
-	local title = Instance.new("TextLabel")
-	title.BackgroundTransparency = 1
-	title.Position = UDim2.new(0, 22, 0, 0)
-	title.Size = UDim2.new(1, -22, 1, 0)
-	title.Font = Enum.Font.GothamBold
-	title.TextSize = 14
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.TextColor3 = fg
-	title.Text = "LOADER"
-	title.Parent = titleRow
+	local rule = new("Frame", {
+		Position = UDim2.fromOffset(0, 56), Size = UDim2.new(1, 0, 0, 1),
+		BackgroundColor3 = THEME.stroke, BackgroundTransparency = 0.35, BorderSizePixel = 0,
+	}, root)
+	new("UIGradient", {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.04, 0),
+			NumberSequenceKeypoint.new(0.96, 0), NumberSequenceKeypoint.new(1, 1),
+		}),
+	}, rule)
 
-	local message = Instance.new("TextLabel")
-	message.BackgroundTransparency = 1
-	message.Position = UDim2.new(0, 16, 0, 38)
-	message.Size = UDim2.new(1, -32, 0, 42)
-	message.Font = Enum.Font.Gotham
-	message.TextSize = 13
-	message.TextWrapped = true
-	message.TextXAlignment = Enum.TextXAlignment.Left
-	message.TextYAlignment = Enum.TextYAlignment.Top
-	message.TextColor3 = muted
-	message.Text = "Loading..."
-	message.Parent = frame
+	local statusBox = new("Frame", {
+		Position = UDim2.fromOffset(16, 70), Size = UDim2.new(1, -32, 0, 40),
+		BackgroundColor3 = THEME.inset, BorderSizePixel = 0,
+	}, root)
+	round(statusBox, 8)
+	outline(statusBox, 0.55)
 
-	local buttonRow = Instance.new("Frame")
-	buttonRow.BackgroundTransparency = 1
-	buttonRow.Position = UDim2.new(0, 16, 1, -42)
-	buttonRow.Size = UDim2.new(1, -32, 0, 28)
-	buttonRow.Visible = false
-	buttonRow.Parent = frame
+	local dot = new("Frame", {
+		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 14, 0.5, 0),
+		Size = UDim2.fromOffset(8, 8), BackgroundColor3 = THEME.dim, BorderSizePixel = 0,
+	}, statusBox)
+	round(dot, 4)
 
-	local function makeButton(text, pos, filled, iconName)
-		local btn = Instance.new("TextButton")
-		btn.Size = UDim2.new(0.5, -5, 1, 0)
-		btn.Position = pos
-		btn.AutoButtonColor = false
-		btn.BackgroundColor3 = filled and accent1 or bg2
-		btn.Font = Enum.Font.GothamBold
-		btn.TextSize = 13
-		btn.TextColor3 = filled and Color3.new(1, 1, 1) or fg
-		btn.Text = "   " .. text
-		btn.Parent = buttonRow
-		round(btn, 8)
+	local status = label({
+		Text = "Starting...", TextSize = 14, TextColor3 = THEME.sub,
+		Position = UDim2.fromOffset(32, 0), Size = UDim2.new(1, -44, 1, 0),
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, statusBox)
 
-		local btnIcon = Instance.new("ImageLabel")
-		btnIcon.BackgroundTransparency = 1
-		btnIcon.Size = UDim2.new(0, 14, 0, 14)
-		btnIcon.AnchorPoint = Vector2.new(0, 0.5)
-		btnIcon.Position = UDim2.new(0, 10, 0.5, 0)
-		btnIcon.ImageColor3 = filled and Color3.new(1, 1, 1) or fg
-		btnIcon.ZIndex = 2
-		btnIcon.Parent = btn
-		if not setIcon(btnIcon, iconName) then
-			btnIcon:Destroy()
-			btn.Text = text
+	local track = new("Frame", {
+		Position = UDim2.fromOffset(16, 124), Size = UDim2.new(1, -32, 0, 4),
+		BackgroundColor3 = THEME.track, BorderSizePixel = 0,
+	}, root)
+	round(track, 2)
+	local fill = new("Frame", {
+		Size = UDim2.fromScale(0, 1), BackgroundColor3 = THEME.fill, BorderSizePixel = 0,
+	}, track)
+	round(fill, 2)
+
+	local reload = new("TextButton", {
+		Position = UDim2.fromOffset(16, 138), Size = UDim2.fromOffset(96, 28),
+		BackgroundColor3 = THEME.panel, BorderSizePixel = 0, AutoButtonColor = false,
+		Text = "Reload", Font = Enum.Font.BuilderSansMedium, TextSize = 14, TextColor3 = THEME.sub,
+	}, root)
+	round(reload, 8)
+	outline(reload, 0.45)
+	table.insert(connections, reload.MouseEnter:Connect(function()
+		tween(reload, FAST, { TextColor3 = THEME.text, BackgroundColor3 = Color3.fromRGB(37, 37, 37) })
+	end))
+	table.insert(connections, reload.MouseLeave:Connect(function()
+		tween(reload, FAST, { TextColor3 = THEME.sub, BackgroundColor3 = THEME.panel })
+	end))
+	table.insert(connections, reload.MouseButton1Click:Connect(function()
+		spawnFn(Loader.load, true)
+	end))
+
+	local version = label({
+		Text = "", TextSize = 12, TextColor3 = THEME.dim, TextXAlignment = Enum.TextXAlignment.Right,
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 138),
+		Size = UDim2.fromOffset(180, 28),
+	}, root)
+
+	-- Drag.
+	local dragging, dragStart, startPos
+	table.insert(connections, header.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging, dragStart, startPos = true, input.Position, root.Position
 		end
-
-		if filled then
-			local grad = Instance.new("UIGradient")
-			grad.Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, accent1),
-				ColorSequenceKeypoint.new(1, accent2),
-			})
-			grad.Parent = btn
-		else
-			local s = Instance.new("UIStroke")
-			s.Color = muted
-			s.Transparency = 0.6
-			s.Parent = btn
+	end))
+	table.insert(connections, userInputService.InputChanged:Connect(function(input)
+		if not dragging then return end
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement
+			and input.UserInputType ~= Enum.UserInputType.Touch then return end
+		local delta = input.Position - dragStart
+		root.Position = UDim2.new(
+			startPos.X.Scale, math.floor(startPos.X.Offset + delta.X + 0.5),
+			startPos.Y.Scale, math.floor(startPos.Y.Offset + delta.Y + 0.5))
+	end))
+	table.insert(connections, userInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
 		end
+	end))
 
-		try(function()
-			btn.MouseEnter:Connect(function()
-				tween(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.15 })
-			end)
-			btn.MouseLeave:Connect(function()
-				tween(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0 })
-			end)
-		end)
+	tween(root, TweenInfo.new(0.26, Enum.EasingStyle.Quad), { GroupTransparency = 0 })
 
-		return btn
-	end
-
-	local confirmBtn = makeButton("Run", UDim2.new(0, 0, 0, 0), true, "check")
-	local cancelBtn = makeButton("Cancel", UDim2.new(0.5, 5, 0, 0), false, "x")
-
-	tween(frame, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-		Position = UDim2.new(0.5, 0, 1, -40),
-	})
-
-	ui.gui = gui
-	ui.frame = frame
-	ui.title = title
-	ui.message = message
-	ui.buttonRow = buttonRow
-	ui.confirmBtn = confirmBtn
-	ui.cancelBtn = cancelBtn
+	ui = {
+		gui = gui, root = root, dot = dot, status = status, fill = fill,
+		version = version, reload = reload,
+	}
 end
 
-local function setMessage(text)
-	if ui.message then ui.message.Text = text end
+---Update the status line, dot colour and progress bar.
+---@param text string
+---@param color Color3
+---@param progress number
+local function setStatus(text, color, progress)
+	if not ui.gui then return end
+	ui.status.Text = text
+	tween(ui.dot, FAST, { BackgroundColor3 = color })
+	tween(ui.fill, EASE, { Size = UDim2.fromScale(math.clamp(progress, 0, 1), 1) })
 end
 
-local function hideButtons()
-	if ui.buttonRow then ui.buttonRow.Visible = false end
-end
+-- Core.
 
-local function destroyUI()
-	if ui.frame then
-		local t = tween(ui.frame, TweenInfo.new(0.25), { Position = UDim2.new(0.5, 0, 1, 20) })
-		if t then
-			try(function()
-				t.Completed:Connect(function()
-					if ui.gui then try(ui.gui.Destroy, ui.gui) end
-				end)
-			end)
-		else
-			if ui.gui then try(ui.gui.Destroy, ui.gui) end
-		end
-	elseif ui.gui then
-		try(ui.gui.Destroy, ui.gui)
-	end
-end
-
-local function askConfirm(name)
-	if not ui.buttonRow then return true end
-	setMessage("Do you want to run " .. name .. "?")
-	ui.buttonRow.Visible = true
-
-	local response = nil
-	local connA = ui.confirmBtn.MouseButton1Click:Connect(function() response = true end)
-	local connB = ui.cancelBtn.MouseButton1Click:Connect(function() response = false end)
-
-	while response == nil do waitFn(0.1) end
-
-	connA:Disconnect()
-	connB:Disconnect()
-	hideButtons()
-
-	return response
-end
-
-local function showUnsupported(name)
-	setMessage("Sorry, we do not support " .. name .. " but you can suggest it.")
-end
-
-local state = {
-	thread = nil,
-	hash = nil,
-	etag = nil,
-	backoff = poll_interval,
-	stopped = false,
-	env = nil,
-}
-
-local function sandbox()
-	local base = (type(getrenv) == "function" and try(getrenv)) or _G
-	local fake = setmetatable({}, { __index = base, __newindex = base })
-	fake.getgenv = getgenv
-	fake.game = (type(cloneref) == "function" and try(cloneref, game)) or game
-	return fake
-end
-
-local function integrity(src)
-	local h = (type(crypt) == "table" and type(crypt.hash) == "function") and try(crypt.hash, src, "sha256") or nil
-	return h or httpService:GenerateGUID(false)
-end
-
-local function fetch()
-	if type(request) ~= "function" and type(http_request) ~= "function" then
-		return try(game.HttpGet, game, entry.urlRaw), true
-	end
-
-	local reqFn = request or http_request
-	local headers = { ["X-Place-Id"] = tostring(placeId) }
-	if state.etag then headers["If-None-Match"] = state.etag end
-
-	local res = try(reqFn, {
-		Url = entry.urlRaw,
-		Method = "GET",
-		Headers = headers,
-	})
-
-	if not res then
-		return try(game.HttpGet, game, entry.urlRaw), true
-	end
-	if res.StatusCode == 304 then return nil, true end
-	if res.StatusCode ~= 200 then return nil, false end
-
-	if res.Headers then
-		for k, v in pairs(res.Headers) do
-			if string.lower(k) == "etag" then state.etag = v end
-		end
-	end
-
-	return res.Body, true
-end
-
-local function execute(src)
-	local id = (type(getthreadidentity) == "function") and try(getthreadidentity) or nil
-	if type(setthreadidentity) == "function" then try(setthreadidentity, 2) end
-
-	local fn, err = loadstring(src, "=loader")
+---Compile and run a fetched script body.
+---@return boolean, string?
+local function execute(body)
+	local fn, compileError = loadstring(body)
 	if type(fn) ~= "function" then
-		if id and type(setthreadidentity) == "function" then try(setthreadidentity, id) end
-		return warn("compile fail: " .. tostring(err))
+		return false, "Compile error: " .. tostring(compileError)
 	end
 
-	if not state.env then state.env = sandbox() end
-	if type(setfenv) == "function" then try(setfenv, fn, state.env) end
+	try(function() if getgenv and getgenv().MONOUI_CLEANUP then getgenv().MONOUI_CLEANUP() end end)
 
-	if state.thread and cancelFn then try(cancelFn, state.thread) end
-	local wrapped = (type(newcclosure) == "function" and try(newcclosure, fn)) or fn
-	state.thread = spawnFn(wrapped)
-
-	if id and type(setthreadidentity) == "function" then try(setthreadidentity, id) end
-end
-
-local function cycle()
-	local src, ok = fetch()
-	if not ok then
-		state.backoff = math.min(state.backoff * 2, maxBackoff)
-		return false
-	end
-	state.backoff = poll_interval
-	if not src or src == "" then return false end
-
-	local h = integrity(src)
-	if h == state.hash then return false end
-
-	execute(src)
-	state.hash = h
+	spawnFn(function()
+		local ok, runtimeError = xpcall(fn, debug.traceback)
+		if not ok then
+			warn("[DuckyHub] " .. tostring(runtimeError))
+			setStatus("Runtime error (see console)", THEME.bad, 1)
+		end
+	end)
 	return true
 end
 
-function Loader.stop()
-	state.stopped = true
-	if state.thread and cancelFn then try(cancelFn, state.thread) end
-	if ui.gui then try(ui.gui.Destroy, ui.gui) end
-end
-
-local function run()
+---Fetch and run the script for this place.
+---@param manual boolean?
+function Loader.load(manual)
+	if busy or not running then return end
 	if not entry then
-		build()
-		setMessage("Loading...")
-		waitFn(0.5)
-		showUnsupported(gameName)
+		setStatus("Game not supported", THEME.bad, 1)
 		return
 	end
 
-	build()
-	setMessage("Loading...")
-	waitFn(0.5)
-
-	if not askConfirm(entry.name) then
-		setMessage("Cancelled.")
-		delayFn(1.5, destroyUI)
+	busy = true
+	setStatus("Fetching script...", THEME.sub, 0.35)
+	local body, fetchError = fetch(entry.urlRaw)
+	if not body then
+		busy = false
+		setStatus("Fetch failed: " .. tostring(fetchError), THEME.bad, 0.35)
 		return
 	end
 
-	setMessage("Loading " .. entry.name .. "...")
-
-	if not cycle() then
-		if not state.hash then
-			setMessage("Failed to load " .. entry.name .. ".")
-			return
-		end
-	end
-
-	setMessage(entry.name .. " loaded.")
-	delayFn(2.5, destroyUI)
-
-	spawnFn(function()
-		while not state.stopped do
-			waitFn(state.backoff)
-			try(cycle)
-		end
-	end)
-end
-
-function Loader.start()
-	local ok, err = pcall(run)
+	setStatus("Compiling...", THEME.sub, 0.7)
+	local ok, executeError = execute(body)
+	busy = false
 	if not ok then
-		warn("[Loader] fatal: " .. tostring(err))
-		try(setMessage, "Error: " .. tostring(err))
+		setStatus(executeError, THEME.bad, 0.7)
+		return
+	end
+
+	lastHash = fingerprint(body)
+	pendingBody = nil
+	ui.version.Text = entry.name .. "  " .. lastHash:sub(-6)
+	setStatus(manual and "Reloaded" or "Loaded", THEME.ok, 1)
+end
+
+---Poll for script updates with exponential backoff on failures.
+local function pollLoop()
+	local failures = 0
+	while running do
+		local delay = math.min(POLL_INTERVAL * (2 ^ failures), MAX_BACKOFF)
+		waitFn(delay)
+		if not running then break end
+		if not entry or busy or not lastHash then continue end
+
+		local body = fetch(entry.urlRaw)
+		if not body then
+			failures = failures + 1
+			continue
+		end
+		failures = 0
+
+		local hash = fingerprint(body)
+		if hash ~= lastHash and not pendingBody then
+			pendingBody = body
+			ui.reload.Text = "Update"
+			setStatus("Update available - press Update", THEME.ok, 1)
+		end
 	end
 end
 
-try(function()
-	local scriptContext = game:GetService("ScriptContext")
-	scriptContext.Error:Connect(function(message, trace, scriptInstance)
-		warn("[LoaderDiag] " .. tostring(message))
-		warn("[LoaderDiag] script: " .. tostring(scriptInstance and scriptInstance.Name or "?"))
-		warn("[LoaderDiag] trace: " .. tostring(trace))
-	end)
-end)
+---Tear everything down.
+function Loader.stop()
+	running = false
+	for _, connection in ipairs(connections) do try(connection.Disconnect, connection) end
+	table.clear(connections)
+	if ui.gui then try(ui.gui.Destroy, ui.gui) end
+	ui = {}
+	if shared.Loader == Loader then shared.Loader = nil end
+end
 
-Loader.start()
-return Loader
+---@param error string
+local function onInitializeError(error)
+	warn("Failed to initialize.")
+	warn(error)
+	warn(debug.traceback())
+	Loader.stop()
+end
+
+xpcall(function()
+	buildUi()
+	spawnFn(Loader.load)
+	spawnFn(pollLoop)
+end, onInitializeError)
