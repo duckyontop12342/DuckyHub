@@ -1,0 +1,13 @@
+-- Change this to retire every older loader.
+local LATEST_VERSION = "8ADB2C"
+
+---@param version string
+---@return boolean allowed
+---@return string message
+return function(version)
+	if version ~= LATEST_VERSION then
+		return false, "Outdated loader"
+	end
+
+	return true, version .. " latest"
+end
