@@ -8,62 +8,87 @@ shared.Loader = Loader
 local tweenService = game:GetService("TweenService")
 local userInputService = game:GetService("UserInputService")
 local runService = game:GetService("RunService")
-local marketplaceService = game:GetService("MarketplaceService")
 
 -- Constants.
 local POLL_INTERVAL = 15
 local MAX_BACKOFF = 120
+local STEP_PAUSE = 0.12
+local TRACE_LOADSTRING = true
+local TRACE_SECONDS = 20
+local LOGO_HEIGHT = 34
+local LOGO_MAX_WIDTH = 220
+local LOGO_X = 10
+local SUBTITLE_FONT = Enum.Font.BuilderSansMedium
+local LOGO_FOLDER = "DuckyHub"
+local LOGO_PATH = "DuckyHub/logo.png"
+local LOGO_URL = "https://raw.githubusercontent.com/duckyontop12342/DuckyHub/refs/heads/main/Copilot_20261024_114935.png"
 local LUCIDE_URL = "https://raw.githubusercontent.com/mstudio45/lucide-roblox-direct/refs/heads/main/source.lua"
+local BEDWARS_URL = "https://cdn.luaprotect.dev/p/8f7961/7243ae30-62c0-4542-80c4-5078509c2261"
 local FUT_URL = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.FUT/refs/heads/main/Ducky.FUTNew"
+local RFL_URL = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.Lol.rfl/refs/heads/main/Duckyrflw"
 
--- Keys can be a PlaceId or a GameId. Footer shows both in-game (click to copy).
+-- Keys can be a PlaceId or a GameId.
 local REGISTRY = {
-	[6403373529] = {
-		name = "Bedwars",
-		urlRaw = "https://cdn.luaprotect.dev/p/8f7961/7243ae30-62c0-4542-80c4-5078509c2261",
-	},
+	[6403373529] = { name = "Bedwars", urlRaw = BEDWARS_URL },
+	[8560631822] = { name = "Bedwars", urlRaw = BEDWARS_URL },
+	[2619619496] = { name = "Bedwars", urlRaw = BEDWARS_URL },
 	[88033955914813] = { name = "FUT", urlRaw = FUT_URL },
 	[18668065416] = { name = "FUT", urlRaw = FUT_URL },
-	[70539431141054] = {
-		name = "RFL",
-		urlRaw = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.lol.rfl/refs/heads/main/Duckyrflw",
-	},
+	[70539431141054] = { name = "RFL", urlRaw = RFL_URL },
 }
 
 local THEME = {
 	root = Color3.fromRGB(24, 24, 24),
-	panel = Color3.fromRGB(30, 30, 30),
-	hover = Color3.fromRGB(37, 37, 37),
+	hover = Color3.fromRGB(44, 44, 46),
 	inset = Color3.fromRGB(28, 28, 28),
-	stroke = Color3.fromRGB(40, 40, 40),
+	stroke = Color3.fromRGB(58, 58, 60),
 	text = Color3.fromRGB(255, 255, 255),
-	sub = Color3.fromRGB(150, 150, 150),
-	dim = Color3.fromRGB(108, 108, 108),
-	track = Color3.fromRGB(52, 52, 52),
-	fill = Color3.fromRGB(205, 205, 205),
+	sub = Color3.fromRGB(196, 196, 200),
+	dim = Color3.fromRGB(146, 146, 152),
+	ring = Color3.fromRGB(96, 96, 100),
+	track = Color3.fromRGB(56, 56, 58),
+	fill = Color3.fromRGB(225, 225, 228),
 	ok = Color3.fromRGB(110, 200, 140),
 	bad = Color3.fromRGB(255, 92, 92),
+	mark = Color3.fromRGB(20, 20, 20),
 }
 
 local STEPS = { "Detect game", "Fetch script", "Compile", "Run" }
-local STEP_ICON = { idle = "circle", active = "loader", done = "check", error = "x" }
+
+local ARC = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 1),
+	NumberSequenceKeypoint.new(0.35, 0),
+	NumberSequenceKeypoint.new(0.7, 0),
+	NumberSequenceKeypoint.new(0.71, 1),
+	NumberSequenceKeypoint.new(1, 1),
+})
+local SOLID = NumberSequence.new(0)
 
 local FAST = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local EASE = TweenInfo.new(0.26, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local SLOW = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local POP = TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 -- State.
 local running = true
+local stopped = false
 local busy = false
 local lastHash = nil
 local pendingUpdate = false
 local activeEntry = nil
 local spinner = nil
+local stepsDone = 0
+local activeStep = nil
+local activeSince = 0
+local errored = false
+local progressShown = 0
 local connections = {}
 local ui = {}
 local rows = {}
 
 local spawnFn = (type(task) == "table" and task.spawn) or spawn
 local waitFn = (type(task) == "table" and task.wait) or wait
+local delayFn = (type(task) == "table" and task.delay) or delay
 
 ---Run fn protected, returning its result or nil.
 local function try(fn, ...)
@@ -73,17 +98,12 @@ local function try(fn, ...)
 	return nil
 end
 
-local Lucide = nil
-if type(writefile) == "function" and type(isfolder) == "function"
-	and type(makefolder) == "function" and type(getcustomasset) == "function" then
-	Lucide = try(function()
-		local fn = loadstring(game:HttpGet(LUCIDE_URL))
-		return type(fn) == "function" and fn() or nil
-	end)
-end
+local Lucide = try(function()
+	local fn = loadstring(game:HttpGet(LUCIDE_URL))
+	return type(fn) == "function" and fn() or nil
+end)
 
 ---Apply a Lucide icon to an image.
----@return boolean
 local function setIcon(image, name)
 	if not Lucide or type(Lucide.GetAsset) ~= "function" then return false end
 	local asset = try(Lucide.GetAsset, name)
@@ -105,11 +125,17 @@ local function round(inst, radius)
 	return new("UICorner", { CornerRadius = UDim.new(0, radius) }, inst)
 end
 
-local function outline(inst, transparency)
+local function outline(inst, transparency, color)
 	return new("UIStroke", {
-		Color = THEME.stroke, Thickness = 1, Transparency = transparency or 0.3,
+		Color = color or THEME.stroke, Thickness = 1, Transparency = transparency or 0.3,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 	}, inst)
+end
+
+local function gradient(parent, props)
+	props = props or {}
+	props.Parent = parent
+	return new("UIGradient", props)
 end
 
 local function tween(inst, info, props)
@@ -127,7 +153,6 @@ local function label(props, parent)
 	return new("TextLabel", base, parent)
 end
 
----Pick the safest GUI container the executor offers.
 local function safeParent()
 	local hui = try(function() return gethui and gethui() end)
 	if typeof(hui) == "Instance" then return hui end
@@ -137,7 +162,6 @@ local function safeParent()
 	return localPlayer and localPlayer:WaitForChild("PlayerGui")
 end
 
----Cheap content fingerprint for update detection.
 local function fingerprint(body)
 	local sum = #body
 	for i = 1, #body, 97 do
@@ -146,8 +170,6 @@ local function fingerprint(body)
 	return string.format("%x-%x", #body, sum)
 end
 
----Fetch a URL bypassing CDN caches where possible.
----@return string?, string?
 local function fetch(url)
 	local target = url
 	if url:find("raw.githubusercontent.com", 1, true) then
@@ -172,65 +194,199 @@ local function fetch(url)
 	return nil, tostring(body)
 end
 
----Match the registry on PlaceId first, then GameId.
+local function readPngSize(data)
+	if type(data) ~= "string" or #data < 24 or data:sub(2, 4) ~= "PNG" then return nil end
+	local function u32(at)
+		return data:byte(at) * 16777216 + data:byte(at + 1) * 65536 + data:byte(at + 2) * 256 + data:byte(at + 3)
+	end
+	local width, height = u32(17), u32(21)
+	if width < 1 or height < 1 then return nil end
+	return width, height
+end
+
+local function resolveLogo()
+	if type(writefile) ~= "function" or type(getcustomasset) ~= "function"
+		or type(isfile) ~= "function" or type(readfile) ~= "function" then
+		return nil
+	end
+
+	if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(LOGO_FOLDER) then
+		try(makefolder, LOGO_FOLDER)
+	end
+
+	local data = fetch(LOGO_URL)
+	if readPngSize(data) then
+		try(writefile, LOGO_PATH, data)
+	else
+		data = isfile(LOGO_PATH) and try(readfile, LOGO_PATH) or nil
+	end
+
+	local width, height = readPngSize(data)
+	if not width then return nil end
+
+	local asset = try(getcustomasset, LOGO_PATH)
+	if not asset then return nil end
+	return asset, width / height
+end
+
 local function resolveEntry()
 	return REGISTRY[game.PlaceId] or REGISTRY[game.GameId]
 end
 
----Real experience title; game.Name is often just "Ugc".
-local function resolveGameName()
-	local info = try(marketplaceService.GetProductInfo, marketplaceService, game.PlaceId)
-	if type(info) == "table" and type(info.Name) == "string" and info.Name ~= "" then
-		return info.Name
+local function installTrace()
+	if not TRACE_LOADSTRING then return end
+	local env = try(getgenv)
+	if type(env) ~= "table" or type(env.loadstring) ~= "function" then return end
+
+	local original = env.loadstring
+	local function traced(source, chunk)
+		local compiled, err = original(source, chunk)
+		if compiled == nil then
+			local head = (tostring(source):sub(1, 80):gsub("%s+", " "))
+			warn(string.format("[DuckyHub] nested loadstring failed: %s | head: %s", tostring(err), head))
+		end
+		return compiled, err
 	end
-	local raw = try(function() return game.Name end)
-	if type(raw) == "string" and raw ~= "" and raw:lower() ~= "ugc" then return raw end
-	return "Place " .. tostring(game.PlaceId)
+	env.loadstring = traced
+
+	delayFn(TRACE_SECONDS, function()
+		if env.loadstring == traced then env.loadstring = original end
+	end)
 end
 
 -- UI.
 
----Paint a step row for a given state and recompute progress.
+local function setBars(bars, on)
+	for _, bar in ipairs(bars) do
+		bar.BackgroundTransparency = 1
+		bar.Visible = on
+		if on then tween(bar, EASE, { BackgroundTransparency = 0 }) end
+	end
+end
+
 local function paintRow(index, state, detail)
 	local row = rows[index]
 	if not row or not ui.fill then return end
 
-	local color = ({
-		idle = THEME.dim, active = THEME.text, done = THEME.ok, error = THEME.bad,
+	local ringColor = ({
+		idle = THEME.ring, active = THEME.text, done = THEME.ok, error = THEME.bad,
+	})[state]
+	local titleColor = ({
+		idle = THEME.dim, active = THEME.text, done = THEME.sub, error = THEME.bad,
 	})[state]
 
-	row.title.TextColor3 = (state == "idle") and THEME.dim or (state == "done" and THEME.sub or color)
+	tween(row.title, FAST, { TextColor3 = titleColor })
 	if detail ~= nil then
 		row.detail.Text = detail
 		row.detail.TextColor3 = (state == "error") and THEME.bad or THEME.dim
 	end
 
-	local hasIcon = setIcon(row.image, STEP_ICON[state])
-	row.image.Visible = hasIcon
-	row.dot.Visible = not hasIcon
-	row.image.ImageColor3 = color
-	row.dot.BackgroundColor3 = color
-
-	row.image.Rotation = 0
+	tween(row.ringStroke, FAST, { Color = ringColor })
 	if state == "active" then
-		spinner = hasIcon and row.image or nil
-	elseif spinner == row.image then
-		spinner = nil
+		row.ringGradient.Transparency = ARC
+		spinner = row.ringGradient
+	else
+		row.ringGradient.Transparency = SOLID
+		row.ringGradient.Rotation = 0
+		if spinner == row.ringGradient then spinner = nil end
 	end
+
+	local filled = state == "done" or state == "error"
+	local changed = row.state ~= state
+	row.fillCircle.BackgroundColor3 = (state == "error") and THEME.bad or THEME.ok
+	if filled and changed then
+		row.fillCircle.Size = UDim2.fromOffset(6, 6)
+		tween(row.fillCircle, EASE, { Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 0 })
+	elseif not filled then
+		tween(row.fillCircle, FAST, { BackgroundTransparency = 1 })
+	end
+	if changed then
+		setBars(row.checkBars, state == "done")
+		setBars(row.crossBars, state == "error")
+	end
+
+	tween(row.bg, EASE, { BackgroundTransparency = (state == "active") and 0.45 or 1 })
 	row.state = state
 
-	local progress = 0
+	stepsDone, activeStep, errored = 0, nil, false
 	for i, r in ipairs(rows) do
 		if r.state == "done" then
-			progress = progress + 1
-		elseif r.state == "active" or (r.state == "error" and i == index) then
-			progress = progress + 0.5
+			stepsDone = stepsDone + 1
+		elseif r.state == "active" then
+			activeStep = i
+		elseif r.state == "error" then
+			errored = true
 		end
 	end
+	if state == "active" and changed then activeSince = os.clock() end
+
 	tween(ui.fill, EASE, {
-		Size = UDim2.fromScale(progress / #STEPS, 1),
-		BackgroundColor3 = (state == "error") and THEME.bad or THEME.fill,
+		BackgroundColor3 = errored and THEME.bad
+			or (stepsDone >= #STEPS and THEME.ok or THEME.fill),
 	})
+end
+
+local function buildClose(parent)
+	local button = new("TextButton", {
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 12),
+		Size = UDim2.fromOffset(32, 32), BackgroundColor3 = THEME.bad,
+		BackgroundTransparency = 1, Text = "", AutoButtonColor = false,
+	}, parent)
+	round(button, 9)
+
+	local glyph = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(20, 20), BackgroundTransparency = 1,
+	}, button)
+
+	local image = new("ImageLabel", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ImageColor3 = THEME.dim,
+	}, glyph)
+
+	local bars = {}
+	if not setIcon(image, "x") then
+		image:Destroy()
+		image = nil
+		for _, angle in ipairs({ 45, -45 }) do
+			local bar = new("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.fromOffset(16, 2), Rotation = angle,
+				BackgroundColor3 = THEME.dim, BorderSizePixel = 0,
+			}, glyph)
+			round(bar, 1)
+			table.insert(bars, bar)
+		end
+	end
+
+	local function tint(color)
+		if image then
+			tween(image, FAST, { ImageColor3 = color })
+		else
+			for _, bar in ipairs(bars) do tween(bar, FAST, { BackgroundColor3 = color }) end
+		end
+	end
+
+	table.insert(connections, button.MouseEnter:Connect(function()
+		tint(THEME.bad)
+		tween(button, FAST, { BackgroundTransparency = 0.86 })
+	end))
+	table.insert(connections, button.MouseLeave:Connect(function()
+		tint(THEME.dim)
+		tween(button, FAST, { BackgroundTransparency = 1 })
+	end))
+	table.insert(connections, button.MouseButton1Click:Connect(function() Loader.stop(true) end))
+	return button
+end
+
+local function mark(parent, centerX, centerY, length, angle)
+	local bar = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(centerX, centerY),
+		Size = UDim2.fromOffset(2, length), Rotation = angle,
+		BackgroundColor3 = THEME.mark, BackgroundTransparency = 1,
+		BorderSizePixel = 0, Visible = false, ZIndex = 3,
+	}, parent)
+	round(bar, 1)
+	return bar
 end
 
 local function buildUi()
@@ -246,18 +402,36 @@ local function buildUi()
 
 	local root = new("CanvasGroup", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(400, 272), BackgroundColor3 = THEME.root,
+		Size = UDim2.fromOffset(400, 264), BackgroundColor3 = THEME.root,
 		BorderSizePixel = 0, GroupTransparency = 1,
 	}, gui)
 	round(root, 12)
-	outline(root, 0.3)
+	local rootScale = new("UIScale", { Scale = 0.96 }, root)
+
+	local border = new("UIStroke", {
+		Color = Color3.fromRGB(255, 255, 255), Thickness = 1, Transparency = 0.55,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	}, root)
+	local borderGradient = gradient(border, {
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 50)),
+			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(190, 190, 190)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(50, 50, 50)),
+		}),
+	})
+
+	local glow = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 96), BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BorderSizePixel = 0,
+	}, root)
+	gradient(glow, { Rotation = 90, Transparency = NumberSequence.new(0.95, 1) })
 
 	local header = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 64), BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 56), BackgroundTransparency = 1,
 	}, root)
 
 	local brandRow = new("Frame", {
-		Position = UDim2.fromOffset(20, 12), Size = UDim2.new(0, 0, 0, 24),
+		Position = UDim2.fromOffset(LOGO_X, 16), Size = UDim2.new(0, 0, 0, 24),
 		AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1,
 	}, header)
 	new("UIListLayout", {
@@ -266,20 +440,20 @@ local function buildUi()
 		Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder,
 	}, brandRow)
 
-	local logo = new("ImageLabel", {
+	local zap = new("ImageLabel", {
 		Size = UDim2.fromOffset(22, 22), BackgroundTransparency = 1,
 		ImageColor3 = THEME.fill, LayoutOrder = 1,
 	}, brandRow)
-	if not setIcon(logo, "zap") then logo:Destroy() end
+	if not setIcon(zap, "zap") then zap:Destroy() zap = nil end
 
-	label({
+	local title = label({
 		Text = "DUCKY HUB", Font = Enum.Font.BuilderSansBold, TextSize = 18,
 		Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2,
 	}, brandRow)
 
 	local badge = new("Frame", {
 		Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X,
-		BackgroundColor3 = Color3.fromRGB(48, 48, 48), BorderSizePixel = 0,
+		BackgroundColor3 = Color3.fromRGB(56, 56, 58), BorderSizePixel = 0,
 		LayoutOrder = 3, Visible = false,
 	}, brandRow)
 	round(badge, 5)
@@ -289,53 +463,51 @@ local function buildUi()
 		Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X,
 	}, badge)
 
-	local subtitle = label({
-		Text = "Resolving game...", TextSize = 13, TextColor3 = THEME.dim,
-		Position = UDim2.fromOffset(20, 38), Size = UDim2.new(1, -80, 0, 16),
-		TextTruncate = Enum.TextTruncate.AtEnd,
+	local logoImage = new("ImageLabel", {
+		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromOffset(LOGO_X, 28),
+		Size = UDim2.fromOffset(0, LOGO_HEIGHT), BackgroundTransparency = 1,
+		ScaleType = Enum.ScaleType.Fit, ZIndex = 3,
 	}, header)
 
-	local close = new("TextButton", {
-		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14),
-		Size = UDim2.fromOffset(32, 32), BackgroundTransparency = 1, Text = "",
-		AutoButtonColor = false,
-	}, header)
-	local closeIcon = new("ImageLabel", {
-		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(22, 22), BackgroundTransparency = 1, ImageColor3 = THEME.dim,
-	}, close)
-	local closeIsText = not setIcon(closeIcon, "x")
-	if closeIsText then
-		closeIcon:Destroy()
-		closeIcon = label({
-			Text = "x", TextSize = 18, TextColor3 = THEME.dim, Size = UDim2.fromScale(1, 1),
-			TextXAlignment = Enum.TextXAlignment.Center,
-		}, close)
-	end
-	local function tintClose(color)
-		tween(closeIcon, FAST, closeIsText and { TextColor3 = color } or { ImageColor3 = color })
-	end
-	table.insert(connections, close.MouseEnter:Connect(function() tintClose(THEME.bad) end))
-	table.insert(connections, close.MouseLeave:Connect(function() tintClose(THEME.dim) end))
-	table.insert(connections, close.MouseButton1Click:Connect(function() Loader.stop() end))
+	-- Smooth transition when the logo loads
+	local function setLogo(asset, aspect)
+		if not logoImage.Parent then return end
+		local width = math.min(math.floor(LOGO_HEIGHT * aspect + 0.5), LOGO_MAX_WIDTH)
 
-	local rule = new("Frame", {
-		Position = UDim2.fromOffset(0, 64), Size = UDim2.new(1, 0, 0, 1),
-		BackgroundColor3 = THEME.stroke, BackgroundTransparency = 0.35, BorderSizePixel = 0,
-	}, root)
-	new("UIGradient", {
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.04, 0),
-			NumberSequenceKeypoint.new(0.96, 0), NumberSequenceKeypoint.new(1, 1),
-		}),
-	}, rule)
+		logoImage.Image = asset
+		logoImage.Size = UDim2.fromOffset(width, LOGO_HEIGHT)
+		logoImage.ImageTransparency = 1
 
-	local card = new("Frame", {
-		Position = UDim2.fromOffset(16, 78), Size = UDim2.new(1, -32, 0, 124),
-		BackgroundColor3 = THEME.inset, BorderSizePixel = 0,
+		-- Fade in the new logo
+		tween(logoImage, EASE, { ImageTransparency = 0 })
+
+		-- Fade out the fallback text/icon
+		if title then tween(title, FAST, { TextTransparency = 1 }) end
+		if zap then tween(zap, FAST, { ImageTransparency = 1 }) end
+
+		-- Immediately hide from layout to prevent visual gaps
+		if title then title.Visible = false end
+		if zap then zap.Visible = false end
+
+		-- Smoothly slide the badge over to its new position
+		tween(brandRow, EASE, { Position = UDim2.fromOffset(LOGO_X + width + 10, 16) })
+
+		-- Cleanup fallback after animation finishes
+		delayFn(0.3, function()
+			if title and title.Parent then title:Destroy() end
+			if zap and zap.Parent then zap:Destroy() end
+		end)
+	end
+
+	buildClose(header)
+
+	local card = new("CanvasGroup", {
+		Position = UDim2.fromOffset(16, 70), Size = UDim2.new(1, -32, 0, 124),
+		BackgroundColor3 = THEME.inset, BorderSizePixel = 0, GroupTransparency = 0,
 	}, root)
 	round(card, 10)
-	outline(card, 0.55)
+	outline(card, 0.7)
+	new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }, card)
 	new("UIListLayout", {
 		SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center,
 		Padding = UDim.new(0, 4),
@@ -345,49 +517,107 @@ local function buildUi()
 		local rowFrame = new("Frame", {
 			Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, LayoutOrder = index,
 		}, card)
-		local image = new("ImageLabel", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 22, 0.5, 0),
-			Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 1, Visible = false,
+		local bg = new("Frame", {
+			Size = UDim2.fromScale(1, 1), BackgroundColor3 = THEME.hover,
+			BackgroundTransparency = 1, BorderSizePixel = 0,
 		}, rowFrame)
-		local dot = new("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 22, 0.5, 0),
-			Size = UDim2.fromOffset(7, 7), BackgroundColor3 = THEME.dim, BorderSizePixel = 0,
+		round(bg, 7)
+		gradient(bg, { Transparency = NumberSequence.new(0, 1) })
+
+		local holder = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 18, 0.5, 0),
+			Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 1,
 		}, rowFrame)
-		round(dot, 4)
-		local title = label({
+
+		local ring = new("Frame", {
+			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
+		}, holder)
+		round(ring, 8)
+		local ringStroke = new("UIStroke", {
+			Color = THEME.ring, Thickness = 1.6,
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		}, ring)
+		local ringGradient = gradient(ringStroke, { Transparency = SOLID })
+
+		local fillCircle = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(16, 16), BackgroundColor3 = THEME.ok,
+			BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 2,
+		}, holder)
+		round(fillCircle, 8)
+
+		local checkBars = {
+			mark(holder, 6, 9.5, 4, -45),
+			mark(holder, 9.5, 8, 7.4, 39),
+		}
+		local crossBars = {
+			mark(holder, 8, 8, 8, 45),
+			mark(holder, 8, 8, 8, -45),
+		}
+
+		local stepTitle = label({
 			Text = name, TextSize = 14, TextColor3 = THEME.dim,
-			Position = UDim2.fromOffset(42, 0), Size = UDim2.new(0.4, 0, 1, 0),
+			Position = UDim2.fromOffset(40, 0), Size = UDim2.new(0.4, 0, 1, 0),
 		}, rowFrame)
 		local detail = label({
 			Text = "", TextSize = 13, TextColor3 = THEME.dim, TextXAlignment = Enum.TextXAlignment.Right,
-			AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 0),
+			AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 0),
 			Size = UDim2.new(0.55, 0, 1, 0), TextTruncate = Enum.TextTruncate.AtEnd,
 		}, rowFrame)
-		rows[index] = { image = image, dot = dot, title = title, detail = detail, state = "idle" }
+		rows[index] = {
+			bg = bg, ringStroke = ringStroke, ringGradient = ringGradient,
+			fillCircle = fillCircle, checkBars = checkBars, crossBars = crossBars,
+			title = stepTitle, detail = detail, state = "idle",
+		}
 	end
 
 	local track = new("Frame", {
-		Position = UDim2.fromOffset(16, 214), Size = UDim2.new(1, -32, 0, 3),
+		Position = UDim2.fromOffset(16, 206), Size = UDim2.new(1, -32, 0, 4),
 		BackgroundColor3 = THEME.track, BorderSizePixel = 0,
 	}, root)
 	round(track, 2)
 	local fill = new("Frame", {
-		Size = UDim2.fromScale(0, 1), BackgroundColor3 = THEME.fill, BorderSizePixel = 0,
+		Size = UDim2.fromScale(0, 1), BackgroundColor3 = THEME.fill,
+		BorderSizePixel = 0, ClipsDescendants = true,
 	}, track)
 	round(fill, 2)
+	gradient(fill, {
+		Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(185, 185, 185)),
+	})
+	local shimmer = new("Frame", {
+		Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BorderSizePixel = 0,
+	}, fill)
+	local shimmerGradient = gradient(shimmer, {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.4, 1),
+			NumberSequenceKeypoint.new(0.5, 0.5), NumberSequenceKeypoint.new(0.6, 1),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+	})
+
+	local reloadBg = new("Frame", {
+		Position = UDim2.fromOffset(16, 220), Size = UDim2.fromOffset(92, 30),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255), BorderSizePixel = 0, ZIndex = 2,
+	}, root)
+	round(reloadBg, 8)
+	outline(reloadBg, 0.5, Color3.fromRGB(104, 104, 108))
+	local reloadGradient = gradient(reloadBg, {
+		Rotation = 90,
+		Color = ColorSequence.new(Color3.fromRGB(78, 78, 82), Color3.fromRGB(58, 58, 62)),
+	})
 
 	local reload = new("TextButton", {
-		Position = UDim2.fromOffset(16, 228), Size = UDim2.fromOffset(92, 30),
-		BackgroundColor3 = THEME.panel, BorderSizePixel = 0, AutoButtonColor = false,
-		Text = "Reload", Font = Enum.Font.BuilderSansMedium, TextSize = 14, TextColor3 = THEME.sub,
+		Position = UDim2.fromOffset(16, 220), Size = UDim2.fromOffset(92, 30),
+		BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false,
+		Text = "Reload", Font = Enum.Font.BuilderSansMedium, TextSize = 14,
+		TextColor3 = Color3.fromRGB(255, 255, 255), ZIndex = 3,
 	}, root)
-	round(reload, 8)
-	outline(reload, 0.45)
 	table.insert(connections, reload.MouseEnter:Connect(function()
-		tween(reload, FAST, { TextColor3 = THEME.text, BackgroundColor3 = THEME.hover })
+		reloadGradient.Color = ColorSequence.new(Color3.fromRGB(96, 96, 100), Color3.fromRGB(72, 72, 76))
 	end))
 	table.insert(connections, reload.MouseLeave:Connect(function()
-		tween(reload, FAST, { TextColor3 = THEME.sub, BackgroundColor3 = THEME.panel })
+		reloadGradient.Color = ColorSequence.new(Color3.fromRGB(78, 78, 82), Color3.fromRGB(58, 58, 62))
 	end))
 	table.insert(connections, reload.MouseButton1Click:Connect(function()
 		spawnFn(Loader.load, true)
@@ -395,7 +625,7 @@ local function buildUi()
 
 	local idsText = string.format("Place %s  |  Game %s", tostring(game.PlaceId), tostring(game.GameId))
 	local ids = new("TextButton", {
-		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 228),
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 220),
 		Size = UDim2.fromOffset(250, 30), BackgroundTransparency = 1, AutoButtonColor = false,
 		Text = idsText, Font = Enum.Font.BuilderSans, TextSize = 12, TextColor3 = THEME.dim,
 		TextXAlignment = Enum.TextXAlignment.Right,
@@ -436,36 +666,166 @@ local function buildUi()
 		end
 	end))
 
-	-- Spinner for the active step.
+	-- Ambient motion.
+	local clock = 0
 	table.insert(connections, runService.Heartbeat:Connect(function(dt)
-		if spinner and spinner.Parent then spinner.Rotation = (spinner.Rotation + 300 * dt) % 360 end
+		clock = clock + dt
+		borderGradient.Rotation = (clock * 30) % 360
+		shimmerGradient.Offset = Vector2.new((clock * 0.8) % 2 - 1, 0)
+		if spinner and spinner.Parent then spinner.Rotation = (spinner.Rotation + 420 * dt) % 360 end
+
+		local target = stepsDone / #STEPS
+		if activeStep then
+			local elapsed = os.clock() - activeSince
+			target = (stepsDone + 0.85 * (1 - math.exp(-1.6 * elapsed))) / #STEPS
+		elseif errored then
+			target = (stepsDone + 0.5) / #STEPS
+		end
+		progressShown = progressShown + (target - progressShown) * (1 - math.exp(-12 * dt))
+		if ui.fill then ui.fill.Size = UDim2.fromScale(math.clamp(progressShown, 0, 1), 1) end
+	end))
+
+	-- In-place confirmation panel.
+	local confirming = false
+	local confirmYes, confirmNo = nil, nil
+
+	local confirmCard = new("CanvasGroup", {
+		Position = UDim2.fromOffset(16, 70), Size = UDim2.new(1, -32, 0, 124),
+		BackgroundColor3 = THEME.inset, BorderSizePixel = 0,
+		GroupTransparency = 1, Visible = false,
+	}, root)
+	round(confirmCard, 10)
+	outline(confirmCard, 0.7)
+
+	local confirmGlow = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 60), BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BorderSizePixel = 0,
+	}, confirmCard)
+	gradient(confirmGlow, { Rotation = 90, Transparency = NumberSequence.new(0.955, 1) })
+
+	label({
+		Text = "Would you like to run this?",
+		Font = Enum.Font.BuilderSansBold, TextSize = 15, TextColor3 = THEME.text,
+		Position = UDim2.fromOffset(16, 16), Size = UDim2.new(1, -32, 0, 20),
+	}, confirmCard)
+
+	local confirmSub = label({
+		Text = "", Font = SUBTITLE_FONT, TextSize = 13, TextColor3 = THEME.dim,
+		Position = UDim2.fromOffset(16, 38), Size = UDim2.new(1, -32, 0, 16),
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, confirmCard)
+
+	local function confirmButton(text, x, width, bgColor, fgColor, hoverColor, onClick)
+		local bg = new("Frame", {
+			Position = UDim2.fromOffset(x, 76), Size = UDim2.fromOffset(width, 32),
+			BackgroundColor3 = bgColor, BorderSizePixel = 0,
+		}, confirmCard)
+		round(bg, 8)
+		outline(bg, 0.5, THEME.stroke)
+
+		local btn = new("TextButton", {
+			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+			Text = text, Font = Enum.Font.BuilderSansMedium, TextSize = 14,
+			TextColor3 = fgColor, AutoButtonColor = false,
+		}, bg)
+
+		table.insert(connections, btn.MouseEnter:Connect(function()
+			tween(bg, FAST, { BackgroundColor3 = hoverColor })
+		end))
+		table.insert(connections, btn.MouseLeave:Connect(function()
+			tween(bg, FAST, { BackgroundColor3 = bgColor })
+		end))
+		table.insert(connections, btn.MouseButton1Click:Connect(function()
+			if confirming and onClick then onClick() end
+		end))
+		return btn
+	end
+
+	confirmButton("No, cancel", 30, 148, THEME.track, THEME.sub, THEME.hover, function()
+		local cb = confirmNo
+		if cb then cb() end
+	end)
+
+	confirmButton("Run script", 190, 148,
+		THEME.fill, Color3.fromRGB(24, 24, 24), Color3.fromRGB(255, 255, 255), function()
+			local cb = confirmYes
+			if cb then cb() end
+		end)
+
+	local function showConfirm(gameName, sizeLabel, onYes, onNo)
+		if confirming or not confirmCard.Parent then return end
+		confirming = true
+		confirmYes, confirmNo = onYes, onNo
+
+		local sub = gameName or "Unknown game"
+		if sizeLabel and sizeLabel ~= "" then sub = sub .. "  ·  " .. sizeLabel end
+		confirmSub.Text = sub
+
+		reload.Visible = false
+		reloadBg.Visible = false
+
+		tween(card, EASE, { GroupTransparency = 1 })
+		confirmCard.Visible = true
+		confirmCard.GroupTransparency = 1
+		tween(confirmCard, EASE, { GroupTransparency = 0 })
+		delayFn(0.18, function()
+			if confirming then card.Visible = false end
+		end)
+	end
+
+	local function hideConfirm()
+		if not confirming then return end
+		confirming = false
+		confirmYes, confirmNo = nil, nil
+
+		tween(confirmCard, EASE, { GroupTransparency = 1 })
+		delayFn(0.18, function()
+			if not confirming then confirmCard.Visible = false end
+		end)
+
+		card.Visible = true
+		card.GroupTransparency = 1
+		tween(card, EASE, { GroupTransparency = 0 })
+
+		reload.Visible = true
+		reloadBg.Visible = true
+	end
+
+	table.insert(connections, userInputService.InputBegan:Connect(function(input, processed)
+		if processed or not confirming then return end
+		if input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.KeypadEnter then
+			local cb = confirmYes
+			if cb then cb() end
+		elseif input.KeyCode == Enum.KeyCode.Escape then
+			local cb = confirmNo
+			if cb then cb() end
+		end
 	end))
 
 	ui = {
-		gui = gui, root = root, fill = fill, reload = reload, subtitle = subtitle,
-		badge = badge, badgeText = badgeText,
+		gui = gui, root = root, rootScale = rootScale, fill = fill, reload = reload,
+		badge = badge, badgeText = badgeText, setLogo = setLogo,
+		showConfirm = showConfirm, hideConfirm = hideConfirm,
 	}
 
 	for index = 1, #STEPS do paintRow(index, "idle") end
 
-	root.Position = UDim2.new(0.5, 0, 0.5, 10)
-	tween(root, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
-		GroupTransparency = 0, Position = UDim2.fromScale(0.5, 0.5),
-	})
+	tween(root, SLOW, { GroupTransparency = 0 })
+	tween(rootScale, SLOW, { Scale = 1 })
 end
 
 -- Core.
 
----Fetch and run the script for this place.
----@param manual boolean?
 function Loader.load(manual)
 	if busy or not running or not ui.gui then return end
 	busy = true
 	pendingUpdate = false
 	ui.reload.Text = "Reload"
+	ui.reload.TextColor3 = Color3.fromRGB(255, 255, 255)
 	for index = 1, #STEPS do paintRow(index, "idle", "") end
 
 	paintRow(1, "active", "")
+	waitFn(STEP_PAUSE)
 	activeEntry = resolveEntry()
 	if not activeEntry then
 		paintRow(1, "error", "Not supported")
@@ -473,6 +833,7 @@ function Loader.load(manual)
 		return
 	end
 	paintRow(1, "done", activeEntry.name)
+	waitFn(STEP_PAUSE)
 
 	paintRow(2, "active", "")
 	local body, fetchError = fetch(activeEntry.urlRaw)
@@ -482,6 +843,7 @@ function Loader.load(manual)
 		return
 	end
 	paintRow(2, "done", string.format("%.1f KB", #body / 1024))
+	waitFn(STEP_PAUSE)
 
 	paintRow(3, "active", "")
 	local fn, compileError = loadstring(body)
@@ -491,26 +853,77 @@ function Loader.load(manual)
 		busy = false
 		return
 	end
+	waitFn(STEP_PAUSE)
 	paintRow(3, "done", "")
+	waitFn(STEP_PAUSE)
 
-	paintRow(4, "active", "")
-	try(function() if getgenv and getgenv().MONOUI_CLEANUP then getgenv().MONOUI_CLEANUP() end end)
-	spawnFn(function()
-		local ok, runtimeError = xpcall(fn, debug.traceback)
-		if not ok then
-			warn("[DuckyHub] " .. tostring(runtimeError))
-			paintRow(4, "error", "Runtime error (see console)")
+	local function runIt()
+		if ui.hideConfirm then ui.hideConfirm() end
+		waitFn(0.18)
+
+		paintRow(4, "active", "")
+		waitFn(STEP_PAUSE)
+
+		try(function() if getgenv and getgenv().MONOUI_CLEANUP then getgenv().MONOUI_CLEANUP() end end)
+		installTrace()
+		spawnFn(function()
+			local ok, runtimeError = xpcall(fn, debug.traceback)
+			if not ok then
+				warn("[DuckyHub] " .. tostring(runtimeError))
+				if running and rows[4] and rows[4].state ~= "error" then
+					paintRow(4, "error", "Runtime error (see console)")
+				end
+			end
+		end)
+		waitFn(0.35)
+
+		if rows[4] and rows[4].state == "error" then
+			busy = false
+			return
 		end
-	end)
-	paintRow(4, "done", manual and "Reloaded" or "Running")
 
-	lastHash = fingerprint(body)
-	ui.badgeText.Text = lastHash:sub(-6):upper()
-	ui.badge.Visible = true
-	busy = false
+		paintRow(4, "done", manual and "Reloaded" or "Running")
+		lastHash = fingerprint(body)
+		if ui.badgeText then ui.badgeText.Text = lastHash:sub(-6):upper() end
+		if ui.badge then ui.badge.Visible = true end
+
+		-- Success Animation: "Pop" the window and turn progress bar green
+		if ui.reload then
+			ui.reload.Text = "Injected!"
+			ui.reload.TextColor3 = THEME.ok
+		end
+
+		if ui.rootScale then
+			tween(ui.rootScale, POP, { Scale = 1.03 })
+			delayFn(0.15, function()
+				tween(ui.rootScale, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 })
+			end)
+		end
+
+		if ui.fill then
+			tween(ui.fill, FAST, { BackgroundColor3 = THEME.ok })
+		end
+
+		waitFn(0.8)
+		Loader.stop(true)
+	end
+
+	local function cancelIt()
+		if ui.hideConfirm then ui.hideConfirm() end
+		waitFn(0.18)
+		paintRow(4, "error", "Cancelled")
+		busy = false
+	end
+
+	if manual then
+		runIt()
+	elseif ui.showConfirm then
+		ui.showConfirm(activeEntry.name, string.format("%.1f KB", #body / 1024), runIt, cancelIt)
+	else
+		runIt()
+	end
 end
 
----Poll for script updates with exponential backoff on failures.
 local function pollLoop()
 	local failures = 0
 	while running do
@@ -534,18 +947,28 @@ local function pollLoop()
 	end
 end
 
----Tear everything down.
-function Loader.stop()
+function Loader.stop(animated)
+	if stopped then return end
+	stopped = true
 	running = false
 	spinner = nil
 	for _, connection in ipairs(connections) do try(connection.Disconnect, connection) end
 	table.clear(connections)
-	if ui.gui then try(ui.gui.Destroy, ui.gui) end
+
+	local gui, root, rootScale = ui.gui, ui.root, ui.rootScale
 	ui = {}
 	if shared.Loader == Loader then shared.Loader = nil end
+	if not gui then return end
+
+	if animated == true and root and root.Parent then
+		tween(root, EASE, { GroupTransparency = 1 })
+		if rootScale then tween(rootScale, EASE, { Scale = 0.97 }) end
+		delayFn(0.3, function() try(gui.Destroy, gui) end)
+	else
+		try(gui.Destroy, gui)
+	end
 end
 
----@param error string
 local function onInitializeError(error)
 	warn("Failed to initialize.")
 	warn(error)
@@ -556,8 +979,8 @@ end
 xpcall(function()
 	buildUi()
 	spawnFn(function()
-		local name = resolveGameName()
-		if ui.subtitle then ui.subtitle.Text = name end
+		local asset, aspect = resolveLogo()
+		if asset and ui.setLogo then ui.setLogo(asset, aspect) end
 	end)
 	spawnFn(Loader.load)
 	spawnFn(pollLoop)
