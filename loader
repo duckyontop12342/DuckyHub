@@ -8,26 +8,34 @@ shared.Loader = Loader
 local tweenService = game:GetService("TweenService")
 local userInputService = game:GetService("UserInputService")
 local runService = game:GetService("RunService")
+local marketplaceService = game:GetService("MarketplaceService")
 
 -- Constants.
+local LOADER_VERSION = "8ADB2C"
+local LOADER_URL = "https://raw.githubusercontent.com/duckyontop12342/DuckyHub/refs/heads/main/loader"
 local POLL_INTERVAL = 15
 local MAX_BACKOFF = 120
 local STEP_PAUSE = 0.12
+local RUN_GRACE = 3
+local FADE_DELAY = 1
 local TRACE_LOADSTRING = true
 local TRACE_SECONDS = 20
 local LOGO_HEIGHT = 34
 local LOGO_MAX_WIDTH = 220
 local LOGO_X = 10
-local SUBTITLE_FONT = Enum.Font.BuilderSansMedium
+local SUBTITLE_X = 21
+local SUBTITLE_Y = 37
+local SUBTITLE_SIZE = 15
+local SUBTITLE_FONT = Enum.Font.BuilderSansBold
 local LOGO_FOLDER = "DuckyHub"
 local LOGO_PATH = "DuckyHub/logo.png"
 local LOGO_URL = "https://raw.githubusercontent.com/duckyontop12342/DuckyHub/refs/heads/main/Copilot_20261024_114935.png"
 local LUCIDE_URL = "https://raw.githubusercontent.com/mstudio45/lucide-roblox-direct/refs/heads/main/source.lua"
 local BEDWARS_URL = "https://cdn.luaprotect.dev/p/8f7961/7243ae30-62c0-4542-80c4-5078509c2261"
 local FUT_URL = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.FUT/refs/heads/main/Ducky.FUTNew"
-local RFL_URL = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.Lol.rfl/refs/heads/main/Duckyrflw"
+local RFL_URL = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.lol.rfl/refs/heads/main/Duckyrflw"
 
--- Keys can be a PlaceId or a GameId.
+-- Keys can be a PlaceId or a GameId. Footer shows both in-game (click to copy).
 local REGISTRY = {
 	[6403373529] = { name = "Bedwars", urlRaw = BEDWARS_URL },
 	[8560631822] = { name = "Bedwars", urlRaw = BEDWARS_URL },
@@ -53,7 +61,7 @@ local THEME = {
 	mark = Color3.fromRGB(20, 20, 20),
 }
 
-local STEPS = { "Detect game", "Fetch script", "Compile", "Run" }
+local STEPS = { "Check version", "Detect game", "Fetch script", "Compile", "Run" }
 
 local ARC = NumberSequence.new({
 	NumberSequenceKeypoint.new(0, 1),
@@ -67,7 +75,6 @@ local SOLID = NumberSequence.new(0)
 local FAST = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local EASE = TweenInfo.new(0.26, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local SLOW = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-local POP = TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 -- State.
 local running = true
@@ -82,6 +89,9 @@ local activeStep = nil
 local activeSince = 0
 local errored = false
 local progressShown = 0
+local visibilityToken = 0
+local loadToken = 0
+local promptAnswer = nil
 local connections = {}
 local ui = {}
 local rows = {}
@@ -104,6 +114,7 @@ local Lucide = try(function()
 end)
 
 ---Apply a Lucide icon to an image.
+---@return boolean
 local function setIcon(image, name)
 	if not Lucide or type(Lucide.GetAsset) ~= "function" then return false end
 	local asset = try(Lucide.GetAsset, name)
@@ -153,6 +164,7 @@ local function label(props, parent)
 	return new("TextLabel", base, parent)
 end
 
+---Pick the safest GUI container the executor offers.
 local function safeParent()
 	local hui = try(function() return gethui and gethui() end)
 	if typeof(hui) == "Instance" then return hui end
@@ -162,6 +174,7 @@ local function safeParent()
 	return localPlayer and localPlayer:WaitForChild("PlayerGui")
 end
 
+---Cheap content fingerprint for update detection.
 local function fingerprint(body)
 	local sum = #body
 	for i = 1, #body, 97 do
@@ -170,6 +183,8 @@ local function fingerprint(body)
 	return string.format("%x-%x", #body, sum)
 end
 
+---Fetch a URL bypassing CDN caches where possible.
+---@return string?, string?
 local function fetch(url)
 	local target = url
 	if url:find("raw.githubusercontent.com", 1, true) then
@@ -194,6 +209,15 @@ local function fetch(url)
 	return nil, tostring(body)
 end
 
+---Pull the loader version out of a loader source string.
+---@return string?
+local function parseVersion(source)
+	if type(source) ~= "string" then return nil end
+	return source:match('LOADER_VERSION%s*=%s*"([%w%.%-_]+)"')
+end
+
+---Read width/height from a PNG header.
+---@return number?, number?
 local function readPngSize(data)
 	if type(data) ~= "string" or #data < 24 or data:sub(2, 4) ~= "PNG" then return nil end
 	local function u32(at)
@@ -204,6 +228,8 @@ local function readPngSize(data)
 	return width, height
 end
 
+---Download (or reuse the cached) logo and turn it into a usable asset id.
+---@return string?, number?
 local function resolveLogo()
 	if type(writefile) ~= "function" or type(getcustomasset) ~= "function"
 		or type(isfile) ~= "function" or type(readfile) ~= "function" then
@@ -229,10 +255,23 @@ local function resolveLogo()
 	return asset, width / height
 end
 
+---Match the registry on PlaceId first, then GameId.
 local function resolveEntry()
 	return REGISTRY[game.PlaceId] or REGISTRY[game.GameId]
 end
 
+---Real experience title; game.Name is often just "Ugc".
+local function resolveGameName()
+	local info = try(marketplaceService.GetProductInfo, marketplaceService, game.PlaceId)
+	if type(info) == "table" and type(info.Name) == "string" and info.Name ~= "" then
+		return info.Name
+	end
+	local raw = try(function() return game.Name end)
+	if type(raw) == "string" and raw ~= "" and raw:lower() ~= "ugc" then return raw end
+	return "Place " .. tostring(game.PlaceId)
+end
+
+---Log nested loadstring failures for a short window so broken dependencies show up.
 local function installTrace()
 	if not TRACE_LOADSTRING then return end
 	local env = try(getgenv)
@@ -256,6 +295,7 @@ end
 
 -- UI.
 
+---Show or hide a set of mark bars with a quick fade.
 local function setBars(bars, on)
 	for _, bar in ipairs(bars) do
 		bar.BackgroundTransparency = 1
@@ -264,6 +304,7 @@ local function setBars(bars, on)
 	end
 end
 
+---Paint a step row for a given state and refresh progress bookkeeping.
 local function paintRow(index, state, detail)
 	local row = rows[index]
 	if not row or not ui.fill then return end
@@ -326,9 +367,49 @@ local function paintRow(index, state, detail)
 	})
 end
 
+---Fade the window back in.
+local function showUi()
+	if not ui.gui then return end
+	visibilityToken = visibilityToken + 1
+	ui.gui.Enabled = true
+	tween(ui.root, SLOW, { GroupTransparency = 0 })
+	tween(ui.rootScale, SLOW, { Scale = 1 })
+end
+
+---Fade the window out while the loader keeps polling in the background.
+local function hideUi()
+	if not ui.gui then return end
+	visibilityToken = visibilityToken + 1
+	local token, gui = visibilityToken, ui.gui
+	tween(ui.root, SLOW, { GroupTransparency = 1 })
+	tween(ui.rootScale, SLOW, { Scale = 0.97 })
+	delayFn(0.45, function()
+		if token == visibilityToken and gui.Parent then gui.Enabled = false end
+	end)
+end
+
+---Block until the user confirms or declines running the detected game.
+---@param gameName string
+---@return boolean
+local function askToRun(gameName)
+	if not ui.prompt then return false end
+	promptAnswer = nil
+	ui.promptTitle.Text = string.format("Run %s?", gameName)
+	ui.promptBody.Text = string.format("You're in %s. Do you want to run its script?", gameName)
+	ui.prompt.Visible = true
+
+	while running and promptAnswer == nil do
+		waitFn()
+	end
+
+	if ui.prompt then ui.prompt.Visible = false end
+	return running and promptAnswer == true
+end
+
+---Build the close button with a Lucide icon and a drawn fallback.
 local function buildClose(parent)
 	local button = new("TextButton", {
-		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 12),
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 16),
 		Size = UDim2.fromOffset(32, 32), BackgroundColor3 = THEME.bad,
 		BackgroundTransparency = 1, Text = "", AutoButtonColor = false,
 	}, parent)
@@ -378,6 +459,7 @@ local function buildClose(parent)
 	return button
 end
 
+---Create a thin rotated bar inside a 16x16 holder.
 local function mark(parent, centerX, centerY, length, angle)
 	local bar = new("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(centerX, centerY),
@@ -387,6 +469,48 @@ local function mark(parent, centerX, centerY, length, angle)
 	}, parent)
 	round(bar, 1)
 	return bar
+end
+
+---Build the run confirmation panel that covers the step card.
+local function buildPrompt(root)
+	local prompt = new("Frame", {
+		Position = UDim2.fromOffset(16, 86), Size = UDim2.new(1, -32, 0, 150),
+		BackgroundColor3 = THEME.inset, BorderSizePixel = 0, Visible = false,
+		Active = true, ZIndex = 10,
+	}, root)
+	round(prompt, 10)
+	outline(prompt, 0.5)
+
+	local promptTitle = label({
+		Text = "", Font = Enum.Font.BuilderSansBold, TextSize = 20,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(12, 22), Size = UDim2.new(1, -24, 0, 24),
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, prompt)
+
+	local promptBody = label({
+		Text = "", TextSize = 14, TextColor3 = THEME.sub, TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(12, 52), Size = UDim2.new(1, -24, 0, 34),
+	}, prompt)
+
+	local function choice(text, offset, color, textColor, answer)
+		local button = new("TextButton", {
+			AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, offset, 0, 98),
+			Size = UDim2.fromOffset(112, 32), BackgroundColor3 = color,
+			BorderSizePixel = 0, AutoButtonColor = true, Text = text,
+			Font = Enum.Font.BuilderSansBold, TextSize = 14, TextColor3 = textColor,
+		}, prompt)
+		round(button, 8)
+		table.insert(connections, button.MouseButton1Click:Connect(function()
+			promptAnswer = answer
+		end))
+	end
+
+	choice("Run", -62, THEME.ok, THEME.mark, true)
+	choice("Cancel", 62, THEME.track, THEME.text, false)
+
+	return prompt, promptTitle, promptBody
 end
 
 local function buildUi()
@@ -402,36 +526,40 @@ local function buildUi()
 
 	local root = new("CanvasGroup", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(400, 264), BackgroundColor3 = THEME.root,
+		Size = UDim2.fromOffset(400, 306), BackgroundColor3 = THEME.root,
 		BorderSizePixel = 0, GroupTransparency = 1,
 	}, gui)
 	round(root, 12)
 	local rootScale = new("UIScale", { Scale = 0.96 }, root)
 
+	-- Thin outline with one short, faint highlight travelling around it.
 	local border = new("UIStroke", {
-		Color = Color3.fromRGB(255, 255, 255), Thickness = 1, Transparency = 0.55,
+		Color = Color3.fromRGB(255, 255, 255), Thickness = 1, Transparency = 0.5,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 	}, root)
 	local borderGradient = gradient(border, {
 		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 50)),
-			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(190, 190, 190)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(50, 50, 50)),
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(58, 58, 60)),
+			ColorSequenceKeypoint.new(0.44, Color3.fromRGB(58, 58, 60)),
+			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 150, 154)),
+			ColorSequenceKeypoint.new(0.56, Color3.fromRGB(58, 58, 60)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(58, 58, 60)),
 		}),
 	})
 
+	-- Soft light glow along the top edge; lightens, never darkens.
 	local glow = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 96), BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		Size = UDim2.new(1, 0, 0, 100), BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 		BorderSizePixel = 0,
 	}, root)
 	gradient(glow, { Rotation = 90, Transparency = NumberSequence.new(0.95, 1) })
 
 	local header = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 56), BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 72), BackgroundTransparency = 1,
 	}, root)
 
 	local brandRow = new("Frame", {
-		Position = UDim2.fromOffset(LOGO_X, 16), Size = UDim2.new(0, 0, 0, 24),
+		Position = UDim2.fromOffset(LOGO_X, 14), Size = UDim2.new(0, 0, 0, 24),
 		AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1,
 	}, header)
 	new("UIListLayout", {
@@ -440,6 +568,7 @@ local function buildUi()
 		Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder,
 	}, brandRow)
 
+	-- Placeholder brand shown until the logo PNG is ready.
 	local zap = new("ImageLabel", {
 		Size = UDim2.fromOffset(22, 22), BackgroundTransparency = 1,
 		ImageColor3 = THEME.fill, LayoutOrder = 1,
@@ -454,56 +583,49 @@ local function buildUi()
 	local badge = new("Frame", {
 		Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X,
 		BackgroundColor3 = Color3.fromRGB(56, 56, 58), BorderSizePixel = 0,
-		LayoutOrder = 3, Visible = false,
+		LayoutOrder = 3,
 	}, brandRow)
 	round(badge, 5)
 	new("UIPadding", { PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, 7) }, badge)
 	local badgeText = label({
-		Text = "", Font = Enum.Font.BuilderSansBold, TextSize = 11, TextColor3 = THEME.sub,
-		Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X,
+		Text = LOADER_VERSION, Font = Enum.Font.BuilderSansBold, TextSize = 11,
+		TextColor3 = THEME.sub, Size = UDim2.new(0, 0, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
 	}, badge)
 
 	local logoImage = new("ImageLabel", {
-		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromOffset(LOGO_X, 28),
+		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromOffset(LOGO_X, 26),
 		Size = UDim2.fromOffset(0, LOGO_HEIGHT), BackgroundTransparency = 1,
 		ScaleType = Enum.ScaleType.Fit, ZIndex = 3,
 	}, header)
 
-	-- Smooth transition when the logo loads
+	---Swap the placeholder brand for the downloaded logo, no animation.
+	---@param asset string
+	---@param aspect number
 	local function setLogo(asset, aspect)
 		if not logoImage.Parent then return end
 		local width = math.min(math.floor(LOGO_HEIGHT * aspect + 0.5), LOGO_MAX_WIDTH)
 
 		logoImage.Image = asset
 		logoImage.Size = UDim2.fromOffset(width, LOGO_HEIGHT)
-		logoImage.ImageTransparency = 1
-
-		-- Fade in the new logo
-		tween(logoImage, EASE, { ImageTransparency = 0 })
-
-		-- Fade out the fallback text/icon
-		if title then tween(title, FAST, { TextTransparency = 1 }) end
-		if zap then tween(zap, FAST, { ImageTransparency = 1 }) end
-
-		-- Immediately hide from layout to prevent visual gaps
-		if title then title.Visible = false end
-		if zap then zap.Visible = false end
-
-		-- Smoothly slide the badge over to its new position
-		tween(brandRow, EASE, { Position = UDim2.fromOffset(LOGO_X + width + 10, 16) })
-
-		-- Cleanup fallback after animation finishes
-		delayFn(0.3, function()
-			if title and title.Parent then title:Destroy() end
-			if zap and zap.Parent then zap:Destroy() end
-		end)
+		if title.Parent then title:Destroy() end
+		if zap and zap.Parent then zap:Destroy() end
+		brandRow.Position = UDim2.fromOffset(LOGO_X + width + 10, 14)
 	end
+
+	-- Sits above the logo layer so the PNG's bottom padding can't cover it.
+	local subtitle = label({
+		Text = "Resolving game...", Font = SUBTITLE_FONT, TextSize = SUBTITLE_SIZE,
+		TextColor3 = Color3.fromRGB(215, 215, 220),
+		Position = UDim2.fromOffset(SUBTITLE_X, SUBTITLE_Y), Size = UDim2.new(1, -86, 0, 18),
+		TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 4,
+	}, header)
 
 	buildClose(header)
 
-	local card = new("CanvasGroup", {
-		Position = UDim2.fromOffset(16, 70), Size = UDim2.new(1, -32, 0, 124),
-		BackgroundColor3 = THEME.inset, BorderSizePixel = 0, GroupTransparency = 0,
+	local card = new("Frame", {
+		Position = UDim2.fromOffset(16, 86), Size = UDim2.new(1, -32, 0, 150),
+		BackgroundColor3 = THEME.inset, BorderSizePixel = 0,
 	}, root)
 	round(card, 10)
 	outline(card, 0.7)
@@ -571,8 +693,10 @@ local function buildUi()
 		}
 	end
 
+	local prompt, promptTitle, promptBody = buildPrompt(root)
+
 	local track = new("Frame", {
-		Position = UDim2.fromOffset(16, 206), Size = UDim2.new(1, -32, 0, 4),
+		Position = UDim2.fromOffset(16, 248), Size = UDim2.new(1, -32, 0, 4),
 		BackgroundColor3 = THEME.track, BorderSizePixel = 0,
 	}, root)
 	round(track, 2)
@@ -596,8 +720,9 @@ local function buildUi()
 		}),
 	})
 
+	-- Gradient lives on a background frame so it never tints the button text.
 	local reloadBg = new("Frame", {
-		Position = UDim2.fromOffset(16, 220), Size = UDim2.fromOffset(92, 30),
+		Position = UDim2.fromOffset(16, 262), Size = UDim2.fromOffset(92, 30),
 		BackgroundColor3 = Color3.fromRGB(255, 255, 255), BorderSizePixel = 0, ZIndex = 2,
 	}, root)
 	round(reloadBg, 8)
@@ -608,7 +733,7 @@ local function buildUi()
 	})
 
 	local reload = new("TextButton", {
-		Position = UDim2.fromOffset(16, 220), Size = UDim2.fromOffset(92, 30),
+		Position = UDim2.fromOffset(16, 262), Size = UDim2.fromOffset(92, 30),
 		BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false,
 		Text = "Reload", Font = Enum.Font.BuilderSansMedium, TextSize = 14,
 		TextColor3 = Color3.fromRGB(255, 255, 255), ZIndex = 3,
@@ -625,7 +750,7 @@ local function buildUi()
 
 	local idsText = string.format("Place %s  |  Game %s", tostring(game.PlaceId), tostring(game.GameId))
 	local ids = new("TextButton", {
-		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 220),
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 262),
 		Size = UDim2.fromOffset(250, 30), BackgroundTransparency = 1, AutoButtonColor = false,
 		Text = idsText, Font = Enum.Font.BuilderSans, TextSize = 12, TextColor3 = THEME.dim,
 		TextXAlignment = Enum.TextXAlignment.Right,
@@ -666,11 +791,11 @@ local function buildUi()
 		end
 	end))
 
-	-- Ambient motion.
+	-- Ambient motion: outline highlight, spinner arc, eased progress with creep, shimmer.
 	local clock = 0
 	table.insert(connections, runService.Heartbeat:Connect(function(dt)
 		clock = clock + dt
-		borderGradient.Rotation = (clock * 30) % 360
+		borderGradient.Rotation = (clock * 40) % 360
 		shimmerGradient.Offset = Vector2.new((clock * 0.8) % 2 - 1, 0)
 		if spinner and spinner.Parent then spinner.Rotation = (spinner.Rotation + 420 * dt) % 360 end
 
@@ -685,245 +810,143 @@ local function buildUi()
 		if ui.fill then ui.fill.Size = UDim2.fromScale(math.clamp(progressShown, 0, 1), 1) end
 	end))
 
-	-- In-place confirmation panel.
-	local confirming = false
-	local confirmYes, confirmNo = nil, nil
-
-	local confirmCard = new("CanvasGroup", {
-		Position = UDim2.fromOffset(16, 70), Size = UDim2.new(1, -32, 0, 124),
-		BackgroundColor3 = THEME.inset, BorderSizePixel = 0,
-		GroupTransparency = 1, Visible = false,
-	}, root)
-	round(confirmCard, 10)
-	outline(confirmCard, 0.7)
-
-	local confirmGlow = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 60), BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BorderSizePixel = 0,
-	}, confirmCard)
-	gradient(confirmGlow, { Rotation = 90, Transparency = NumberSequence.new(0.955, 1) })
-
-	label({
-		Text = "Would you like to run this?",
-		Font = Enum.Font.BuilderSansBold, TextSize = 15, TextColor3 = THEME.text,
-		Position = UDim2.fromOffset(16, 16), Size = UDim2.new(1, -32, 0, 20),
-	}, confirmCard)
-
-	local confirmSub = label({
-		Text = "", Font = SUBTITLE_FONT, TextSize = 13, TextColor3 = THEME.dim,
-		Position = UDim2.fromOffset(16, 38), Size = UDim2.new(1, -32, 0, 16),
-		TextTruncate = Enum.TextTruncate.AtEnd,
-	}, confirmCard)
-
-	local function confirmButton(text, x, width, bgColor, fgColor, hoverColor, onClick)
-		local bg = new("Frame", {
-			Position = UDim2.fromOffset(x, 76), Size = UDim2.fromOffset(width, 32),
-			BackgroundColor3 = bgColor, BorderSizePixel = 0,
-		}, confirmCard)
-		round(bg, 8)
-		outline(bg, 0.5, THEME.stroke)
-
-		local btn = new("TextButton", {
-			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
-			Text = text, Font = Enum.Font.BuilderSansMedium, TextSize = 14,
-			TextColor3 = fgColor, AutoButtonColor = false,
-		}, bg)
-
-		table.insert(connections, btn.MouseEnter:Connect(function()
-			tween(bg, FAST, { BackgroundColor3 = hoverColor })
-		end))
-		table.insert(connections, btn.MouseLeave:Connect(function()
-			tween(bg, FAST, { BackgroundColor3 = bgColor })
-		end))
-		table.insert(connections, btn.MouseButton1Click:Connect(function()
-			if confirming and onClick then onClick() end
-		end))
-		return btn
-	end
-
-	confirmButton("No, cancel", 30, 148, THEME.track, THEME.sub, THEME.hover, function()
-		local cb = confirmNo
-		if cb then cb() end
-	end)
-
-	confirmButton("Run script", 190, 148,
-		THEME.fill, Color3.fromRGB(24, 24, 24), Color3.fromRGB(255, 255, 255), function()
-			local cb = confirmYes
-			if cb then cb() end
-		end)
-
-	local function showConfirm(gameName, sizeLabel, onYes, onNo)
-		if confirming or not confirmCard.Parent then return end
-		confirming = true
-		confirmYes, confirmNo = onYes, onNo
-
-		local sub = gameName or "Unknown game"
-		if sizeLabel and sizeLabel ~= "" then sub = sub .. "  ·  " .. sizeLabel end
-		confirmSub.Text = sub
-
-		reload.Visible = false
-		reloadBg.Visible = false
-
-		tween(card, EASE, { GroupTransparency = 1 })
-		confirmCard.Visible = true
-		confirmCard.GroupTransparency = 1
-		tween(confirmCard, EASE, { GroupTransparency = 0 })
-		delayFn(0.18, function()
-			if confirming then card.Visible = false end
-		end)
-	end
-
-	local function hideConfirm()
-		if not confirming then return end
-		confirming = false
-		confirmYes, confirmNo = nil, nil
-
-		tween(confirmCard, EASE, { GroupTransparency = 1 })
-		delayFn(0.18, function()
-			if not confirming then confirmCard.Visible = false end
-		end)
-
-		card.Visible = true
-		card.GroupTransparency = 1
-		tween(card, EASE, { GroupTransparency = 0 })
-
-		reload.Visible = true
-		reloadBg.Visible = true
-	end
-
-	table.insert(connections, userInputService.InputBegan:Connect(function(input, processed)
-		if processed or not confirming then return end
-		if input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.KeypadEnter then
-			local cb = confirmYes
-			if cb then cb() end
-		elseif input.KeyCode == Enum.KeyCode.Escape then
-			local cb = confirmNo
-			if cb then cb() end
-		end
-	end))
-
 	ui = {
 		gui = gui, root = root, rootScale = rootScale, fill = fill, reload = reload,
-		badge = badge, badgeText = badgeText, setLogo = setLogo,
-		showConfirm = showConfirm, hideConfirm = hideConfirm,
+		subtitle = subtitle, badge = badge, badgeText = badgeText, setLogo = setLogo,
+		prompt = prompt, promptTitle = promptTitle, promptBody = promptBody,
 	}
 
 	for index = 1, #STEPS do paintRow(index, "idle") end
 
-	tween(root, SLOW, { GroupTransparency = 0 })
-	tween(rootScale, SLOW, { Scale = 1 })
+	showUi()
 end
 
 -- Core.
 
+---Compare this loader's version against the one published in the repo.
+---@return boolean allowed
+local function checkLoaderVersion()
+	paintRow(1, "active", "")
+	waitFn(STEP_PAUSE)
+
+	local source = fetch(LOADER_URL)
+	if not source then
+		paintRow(1, "done", "Offline, skipped")
+		return true
+	end
+
+	if parseVersion(source) ~= LOADER_VERSION then
+		paintRow(1, "error", "Outdated loader")
+		if ui.badgeText then
+			ui.badgeText.Text = "OUTDATED"
+			ui.badgeText.TextColor3 = THEME.bad
+		end
+		return false
+	end
+
+	paintRow(1, "done", LOADER_VERSION .. " latest")
+	return true
+end
+
+---Fetch and run the script for this place.
+---@param manual boolean?
 function Loader.load(manual)
 	if busy or not running or not ui.gui then return end
 	busy = true
 	pendingUpdate = false
+	loadToken = loadToken + 1
+	local token = loadToken
 	ui.reload.Text = "Reload"
-	ui.reload.TextColor3 = Color3.fromRGB(255, 255, 255)
+	ui.badgeText.Text = LOADER_VERSION
+	ui.badgeText.TextColor3 = THEME.sub
 	for index = 1, #STEPS do paintRow(index, "idle", "") end
 
-	paintRow(1, "active", "")
+	local allowed = checkLoaderVersion()
+	if not running then return end
+	if not allowed then
+		busy = false
+		return
+	end
+
+	paintRow(2, "active", "")
 	waitFn(STEP_PAUSE)
 	activeEntry = resolveEntry()
 	if not activeEntry then
-		paintRow(1, "error", "Not supported")
+		paintRow(2, "error", "Not supported")
 		busy = false
 		return
 	end
-	paintRow(1, "done", activeEntry.name)
+	if ui.subtitle then ui.subtitle.Text = activeEntry.name end
+	paintRow(2, "done", activeEntry.name)
 	waitFn(STEP_PAUSE)
 
-	paintRow(2, "active", "")
-	local body, fetchError = fetch(activeEntry.urlRaw)
-	if not body then
-		paintRow(2, "error", tostring(fetchError))
+	if not askToRun(activeEntry.name) then
 		busy = false
+		Loader.stop(true)
 		return
 	end
-	paintRow(2, "done", string.format("%.1f KB", #body / 1024))
-	waitFn(STEP_PAUSE)
 
 	paintRow(3, "active", "")
+	local body, fetchError = fetch(activeEntry.urlRaw)
+	if not running then return end
+	if not body then
+		paintRow(3, "error", tostring(fetchError))
+		busy = false
+		return
+	end
+	paintRow(3, "done", string.format("%.1f KB", #body / 1024))
+	waitFn(STEP_PAUSE)
+
+	paintRow(4, "active", "")
 	local fn, compileError = loadstring(body)
 	if type(fn) ~= "function" then
 		warn("[DuckyHub] " .. tostring(compileError))
-		paintRow(3, "error", "Syntax error (see console)")
+		paintRow(4, "error", "Syntax error (see console)")
 		busy = false
 		return
 	end
 	waitFn(STEP_PAUSE)
-	paintRow(3, "done", "")
+	paintRow(4, "done", "")
 	waitFn(STEP_PAUSE)
+	if not running then return end
 
-	local function runIt()
-		if ui.hideConfirm then ui.hideConfirm() end
-		waitFn(0.18)
+	paintRow(5, "active", "")
+	try(function() if getgenv and getgenv().MONOUI_CLEANUP then getgenv().MONOUI_CLEANUP() end end)
+	installTrace()
 
-		paintRow(4, "active", "")
+	local finished, failed = false, false
+	spawnFn(function()
+		local ok, runtimeError = xpcall(fn, debug.traceback)
+		finished = true
+		if ok then return end
+
+		failed = true
+		warn("[DuckyHub] " .. tostring(runtimeError))
+		if token ~= loadToken then return end
+
+		-- A late error has to bring the window back or it goes unseen.
+		paintRow(5, "error", "Runtime error (see console)")
+		showUi()
+	end)
+
+	-- Scripts that loop forever never return, so the grace window caps the wait.
+	local startedAt = os.clock()
+	repeat
 		waitFn(STEP_PAUSE)
+	until finished or not running or os.clock() - startedAt >= RUN_GRACE
 
-		try(function() if getgenv and getgenv().MONOUI_CLEANUP then getgenv().MONOUI_CLEANUP() end end)
-		installTrace()
-		spawnFn(function()
-			local ok, runtimeError = xpcall(fn, debug.traceback)
-			if not ok then
-				warn("[DuckyHub] " .. tostring(runtimeError))
-				if running and rows[4] and rows[4].state ~= "error" then
-					paintRow(4, "error", "Runtime error (see console)")
-				end
-			end
-		end)
-		waitFn(0.35)
+	lastHash = fingerprint(body)
 
-		if rows[4] and rows[4].state == "error" then
-			busy = false
-			return
-		end
-
-		paintRow(4, "done", manual and "Reloaded" or "Running")
-		lastHash = fingerprint(body)
-		if ui.badgeText then ui.badgeText.Text = lastHash:sub(-6):upper() end
-		if ui.badge then ui.badge.Visible = true end
-
-		-- Success Animation: "Pop" the window and turn progress bar green
-		if ui.reload then
-			ui.reload.Text = "Injected!"
-			ui.reload.TextColor3 = THEME.ok
-		end
-
-		if ui.rootScale then
-			tween(ui.rootScale, POP, { Scale = 1.03 })
-			delayFn(0.15, function()
-				tween(ui.rootScale, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 })
-			end)
-		end
-
-		if ui.fill then
-			tween(ui.fill, FAST, { BackgroundColor3 = THEME.ok })
-		end
-
-		waitFn(0.8)
-		Loader.stop(true)
+	if not failed and running then
+		paintRow(5, "done", manual and "Reloaded" or "Running")
+		waitFn(FADE_DELAY)
+		if not failed and running then hideUi() end
 	end
 
-	local function cancelIt()
-		if ui.hideConfirm then ui.hideConfirm() end
-		waitFn(0.18)
-		paintRow(4, "error", "Cancelled")
-		busy = false
-	end
-
-	if manual then
-		runIt()
-	elseif ui.showConfirm then
-		ui.showConfirm(activeEntry.name, string.format("%.1f KB", #body / 1024), runIt, cancelIt)
-	else
-		runIt()
-	end
+	busy = false
 end
 
+---Poll for script updates with exponential backoff on failures.
 local function pollLoop()
 	local failures = 0
 	while running do
@@ -938,15 +961,18 @@ local function pollLoop()
 		end
 		failures = 0
 
-		if fingerprint(body) ~= lastHash then
+		if running and not busy and fingerprint(body) ~= lastHash then
 			pendingUpdate = true
 			ui.reload.Text = "Update"
 			ui.badgeText.Text = "UPDATE"
 			ui.badgeText.TextColor3 = THEME.ok
+			showUi()
 		end
 	end
 end
 
+---Tear everything down.
+---@param animated boolean?
 function Loader.stop(animated)
 	if stopped then return end
 	stopped = true
@@ -969,6 +995,7 @@ function Loader.stop(animated)
 	end
 end
 
+---@param error string
 local function onInitializeError(error)
 	warn("Failed to initialize.")
 	warn(error)
@@ -978,6 +1005,10 @@ end
 
 xpcall(function()
 	buildUi()
+	spawnFn(function()
+		local name = resolveGameName()
+		if ui.subtitle and not activeEntry then ui.subtitle.Text = name end
+	end)
 	spawnFn(function()
 		local asset, aspect = resolveLogo()
 		if asset and ui.setLogo then ui.setLogo(asset, aspect) end
