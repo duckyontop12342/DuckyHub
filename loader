@@ -36,7 +36,7 @@ local REGISTRY = {
 		name = "Bedwars",
 		urlRaw = "https://cdn.luaprotect.dev/p/8f7961/7243ae30-62c0-4542-80c4-5078509c2261",
 	},
-	[18668065416] = {
+	[88033955914813] = {
 		name = "FUT",
 		urlRaw = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.FUT/refs/heads/main/Ducky.FUTNew",
 	},
