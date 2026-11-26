@@ -7,21 +7,23 @@ shared.Loader = Loader
 -- Services.
 local tweenService = game:GetService("TweenService")
 local userInputService = game:GetService("UserInputService")
+local runService = game:GetService("RunService")
+local marketplaceService = game:GetService("MarketplaceService")
 
 -- Constants.
 local POLL_INTERVAL = 15
 local MAX_BACKOFF = 120
 local LUCIDE_URL = "https://raw.githubusercontent.com/mstudio45/lucide-roblox-direct/refs/heads/main/source.lua"
+local FUT_URL = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.FUT/refs/heads/main/Ducky.FUTNew"
 
+-- Keys can be a PlaceId or a GameId. Footer shows both in-game (click to copy).
 local REGISTRY = {
 	[6403373529] = {
 		name = "Bedwars",
 		urlRaw = "https://cdn.luaprotect.dev/p/8f7961/7243ae30-62c0-4542-80c4-5078509c2261",
 	},
-	[18668065416] = {
-		name = "FUT",
-		urlRaw = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.FUT/refs/heads/main/Ducky.FUTNew",
-	},
+	[88033955914813] = { name = "FUT", urlRaw = FUT_URL },
+	[18668065416] = { name = "FUT", urlRaw = FUT_URL },
 	[70539431141054] = {
 		name = "RFL",
 		urlRaw = "https://raw.githubusercontent.com/LUASCRIPTSBYME/Ducky.lol.rfl/refs/heads/main/Duckyrflw",
@@ -31,6 +33,7 @@ local REGISTRY = {
 local THEME = {
 	root = Color3.fromRGB(24, 24, 24),
 	panel = Color3.fromRGB(30, 30, 30),
+	hover = Color3.fromRGB(37, 37, 37),
 	inset = Color3.fromRGB(28, 28, 28),
 	stroke = Color3.fromRGB(40, 40, 40),
 	text = Color3.fromRGB(255, 255, 255),
@@ -42,18 +45,22 @@ local THEME = {
 	bad = Color3.fromRGB(255, 92, 92),
 }
 
+local STEPS = { "Detect game", "Fetch script", "Compile", "Run" }
+local STEP_ICON = { idle = "circle", active = "loader", done = "check", error = "x" }
+
 local FAST = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local EASE = TweenInfo.new(0.26, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
 -- State.
-local placeId = game.PlaceId
-local entry = REGISTRY[placeId]
 local running = true
 local busy = false
 local lastHash = nil
-local pendingBody = nil
+local pendingUpdate = false
+local activeEntry = nil
+local spinner = nil
 local connections = {}
 local ui = {}
+local rows = {}
 
 local spawnFn = (type(task) == "table" and task.spawn) or spawn
 local waitFn = (type(task) == "table" and task.wait) or wait
@@ -66,11 +73,6 @@ local function try(fn, ...)
 	return nil
 end
 
-local gameName = try(function() return game.Name end)
-if type(gameName) ~= "string" or gameName == "" then
-	gameName = "Place " .. tostring(placeId)
-end
-
 local Lucide = nil
 if type(writefile) == "function" and type(isfolder) == "function"
 	and type(makefolder) == "function" and type(getcustomasset) == "function" then
@@ -80,7 +82,7 @@ if type(writefile) == "function" and type(isfolder) == "function"
 	end)
 end
 
----Apply a Lucide icon to an ImageLabel/ImageButton.
+---Apply a Lucide icon to an image.
 ---@return boolean
 local function setIcon(image, name)
 	if not Lucide or type(Lucide.GetAsset) ~= "function" then return false end
@@ -92,7 +94,6 @@ local function setIcon(image, name)
 	return true
 end
 
----Create an instance with props and an optional parent.
 local function new(class, props, parent)
 	local inst = Instance.new(class)
 	for key, value in pairs(props or {}) do inst[key] = value end
@@ -171,7 +172,66 @@ local function fetch(url)
 	return nil, tostring(body)
 end
 
+---Match the registry on PlaceId first, then GameId.
+local function resolveEntry()
+	return REGISTRY[game.PlaceId] or REGISTRY[game.GameId]
+end
+
+---Real experience title; game.Name is often just "Ugc".
+local function resolveGameName()
+	local info = try(marketplaceService.GetProductInfo, marketplaceService, game.PlaceId)
+	if type(info) == "table" and type(info.Name) == "string" and info.Name ~= "" then
+		return info.Name
+	end
+	local raw = try(function() return game.Name end)
+	if type(raw) == "string" and raw ~= "" and raw:lower() ~= "ugc" then return raw end
+	return "Place " .. tostring(game.PlaceId)
+end
+
 -- UI.
+
+---Paint a step row for a given state and recompute progress.
+local function paintRow(index, state, detail)
+	local row = rows[index]
+	if not row or not ui.fill then return end
+
+	local color = ({
+		idle = THEME.dim, active = THEME.text, done = THEME.ok, error = THEME.bad,
+	})[state]
+
+	row.title.TextColor3 = (state == "idle") and THEME.dim or (state == "done" and THEME.sub or color)
+	if detail ~= nil then
+		row.detail.Text = detail
+		row.detail.TextColor3 = (state == "error") and THEME.bad or THEME.dim
+	end
+
+	local hasIcon = setIcon(row.image, STEP_ICON[state])
+	row.image.Visible = hasIcon
+	row.dot.Visible = not hasIcon
+	row.image.ImageColor3 = color
+	row.dot.BackgroundColor3 = color
+
+	row.image.Rotation = 0
+	if state == "active" then
+		spinner = hasIcon and row.image or nil
+	elseif spinner == row.image then
+		spinner = nil
+	end
+	row.state = state
+
+	local progress = 0
+	for i, r in ipairs(rows) do
+		if r.state == "done" then
+			progress = progress + 1
+		elseif r.state == "active" or (r.state == "error" and i == index) then
+			progress = progress + 0.5
+		end
+	end
+	tween(ui.fill, EASE, {
+		Size = UDim2.fromScale(progress / #STEPS, 1),
+		BackgroundColor3 = (state == "error") and THEME.bad or THEME.fill,
+	})
+end
 
 local function buildUi()
 	local gui = new("ScreenGui", {
@@ -186,34 +246,57 @@ local function buildUi()
 
 	local root = new("CanvasGroup", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(360, 176), BackgroundColor3 = THEME.root,
+		Size = UDim2.fromOffset(400, 272), BackgroundColor3 = THEME.root,
 		BorderSizePixel = 0, GroupTransparency = 1,
 	}, gui)
-	round(root, 10)
+	round(root, 12)
 	outline(root, 0.3)
 
 	local header = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 56), BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 64), BackgroundTransparency = 1,
 	}, root)
 
-	local logo = new("ImageLabel", {
-		Position = UDim2.fromOffset(18, 16), Size = UDim2.fromOffset(24, 24),
-		BackgroundTransparency = 1, ImageColor3 = THEME.fill,
+	local brandRow = new("Frame", {
+		Position = UDim2.fromOffset(20, 12), Size = UDim2.new(0, 0, 0, 24),
+		AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1,
 	}, header)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder,
+	}, brandRow)
+
+	local logo = new("ImageLabel", {
+		Size = UDim2.fromOffset(22, 22), BackgroundTransparency = 1,
+		ImageColor3 = THEME.fill, LayoutOrder = 1,
+	}, brandRow)
 	if not setIcon(logo, "zap") then logo:Destroy() end
-	local textX = logo.Parent and 50 or 20
 
 	label({
-		Text = "DUCKY HUB", Font = Enum.Font.BuilderSansBold, TextSize = 17,
-		Position = UDim2.fromOffset(textX, 9), Size = UDim2.new(1, -90, 0, 20),
-	}, header)
-	label({
-		Text = entry and entry.name or gameName, TextSize = 13, TextColor3 = THEME.dim,
-		Position = UDim2.fromOffset(textX, 29), Size = UDim2.new(1, -90, 0, 16),
+		Text = "DUCKY HUB", Font = Enum.Font.BuilderSansBold, TextSize = 18,
+		Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, LayoutOrder = 2,
+	}, brandRow)
+
+	local badge = new("Frame", {
+		Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundColor3 = Color3.fromRGB(48, 48, 48), BorderSizePixel = 0,
+		LayoutOrder = 3, Visible = false,
+	}, brandRow)
+	round(badge, 5)
+	new("UIPadding", { PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, 7) }, badge)
+	local badgeText = label({
+		Text = "", Font = Enum.Font.BuilderSansBold, TextSize = 11, TextColor3 = THEME.sub,
+		Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X,
+	}, badge)
+
+	local subtitle = label({
+		Text = "Resolving game...", TextSize = 13, TextColor3 = THEME.dim,
+		Position = UDim2.fromOffset(20, 38), Size = UDim2.new(1, -80, 0, 16),
+		TextTruncate = Enum.TextTruncate.AtEnd,
 	}, header)
 
 	local close = new("TextButton", {
-		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 12),
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14),
 		Size = UDim2.fromOffset(32, 32), BackgroundTransparency = 1, Text = "",
 		AutoButtonColor = false,
 	}, header)
@@ -221,7 +304,8 @@ local function buildUi()
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromOffset(22, 22), BackgroundTransparency = 1, ImageColor3 = THEME.dim,
 	}, close)
-	if not setIcon(closeIcon, "x") then
+	local closeIsText = not setIcon(closeIcon, "x")
+	if closeIsText then
 		closeIcon:Destroy()
 		closeIcon = label({
 			Text = "x", TextSize = 18, TextColor3 = THEME.dim, Size = UDim2.fromScale(1, 1),
@@ -229,14 +313,14 @@ local function buildUi()
 		}, close)
 	end
 	local function tintClose(color)
-		tween(closeIcon, FAST, closeIcon:IsA("ImageLabel") and { ImageColor3 = color } or { TextColor3 = color })
+		tween(closeIcon, FAST, closeIsText and { TextColor3 = color } or { ImageColor3 = color })
 	end
 	table.insert(connections, close.MouseEnter:Connect(function() tintClose(THEME.bad) end))
 	table.insert(connections, close.MouseLeave:Connect(function() tintClose(THEME.dim) end))
 	table.insert(connections, close.MouseButton1Click:Connect(function() Loader.stop() end))
 
 	local rule = new("Frame", {
-		Position = UDim2.fromOffset(0, 56), Size = UDim2.new(1, 0, 0, 1),
+		Position = UDim2.fromOffset(0, 64), Size = UDim2.new(1, 0, 0, 1),
 		BackgroundColor3 = THEME.stroke, BackgroundTransparency = 0.35, BorderSizePixel = 0,
 	}, root)
 	new("UIGradient", {
@@ -246,27 +330,44 @@ local function buildUi()
 		}),
 	}, rule)
 
-	local statusBox = new("Frame", {
-		Position = UDim2.fromOffset(16, 70), Size = UDim2.new(1, -32, 0, 40),
+	local card = new("Frame", {
+		Position = UDim2.fromOffset(16, 78), Size = UDim2.new(1, -32, 0, 124),
 		BackgroundColor3 = THEME.inset, BorderSizePixel = 0,
 	}, root)
-	round(statusBox, 8)
-	outline(statusBox, 0.55)
+	round(card, 10)
+	outline(card, 0.55)
+	new("UIListLayout", {
+		SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 4),
+	}, card)
 
-	local dot = new("Frame", {
-		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 14, 0.5, 0),
-		Size = UDim2.fromOffset(8, 8), BackgroundColor3 = THEME.dim, BorderSizePixel = 0,
-	}, statusBox)
-	round(dot, 4)
-
-	local status = label({
-		Text = "Starting...", TextSize = 14, TextColor3 = THEME.sub,
-		Position = UDim2.fromOffset(32, 0), Size = UDim2.new(1, -44, 1, 0),
-		TextTruncate = Enum.TextTruncate.AtEnd,
-	}, statusBox)
+	for index, name in ipairs(STEPS) do
+		local rowFrame = new("Frame", {
+			Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, LayoutOrder = index,
+		}, card)
+		local image = new("ImageLabel", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 22, 0.5, 0),
+			Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 1, Visible = false,
+		}, rowFrame)
+		local dot = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 22, 0.5, 0),
+			Size = UDim2.fromOffset(7, 7), BackgroundColor3 = THEME.dim, BorderSizePixel = 0,
+		}, rowFrame)
+		round(dot, 4)
+		local title = label({
+			Text = name, TextSize = 14, TextColor3 = THEME.dim,
+			Position = UDim2.fromOffset(42, 0), Size = UDim2.new(0.4, 0, 1, 0),
+		}, rowFrame)
+		local detail = label({
+			Text = "", TextSize = 13, TextColor3 = THEME.dim, TextXAlignment = Enum.TextXAlignment.Right,
+			AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 0),
+			Size = UDim2.new(0.55, 0, 1, 0), TextTruncate = Enum.TextTruncate.AtEnd,
+		}, rowFrame)
+		rows[index] = { image = image, dot = dot, title = title, detail = detail, state = "idle" }
+	end
 
 	local track = new("Frame", {
-		Position = UDim2.fromOffset(16, 124), Size = UDim2.new(1, -32, 0, 4),
+		Position = UDim2.fromOffset(16, 214), Size = UDim2.new(1, -32, 0, 3),
 		BackgroundColor3 = THEME.track, BorderSizePixel = 0,
 	}, root)
 	round(track, 2)
@@ -276,14 +377,14 @@ local function buildUi()
 	round(fill, 2)
 
 	local reload = new("TextButton", {
-		Position = UDim2.fromOffset(16, 138), Size = UDim2.fromOffset(96, 28),
+		Position = UDim2.fromOffset(16, 228), Size = UDim2.fromOffset(92, 30),
 		BackgroundColor3 = THEME.panel, BorderSizePixel = 0, AutoButtonColor = false,
 		Text = "Reload", Font = Enum.Font.BuilderSansMedium, TextSize = 14, TextColor3 = THEME.sub,
 	}, root)
 	round(reload, 8)
 	outline(reload, 0.45)
 	table.insert(connections, reload.MouseEnter:Connect(function()
-		tween(reload, FAST, { TextColor3 = THEME.text, BackgroundColor3 = Color3.fromRGB(37, 37, 37) })
+		tween(reload, FAST, { TextColor3 = THEME.text, BackgroundColor3 = THEME.hover })
 	end))
 	table.insert(connections, reload.MouseLeave:Connect(function()
 		tween(reload, FAST, { TextColor3 = THEME.sub, BackgroundColor3 = THEME.panel })
@@ -292,11 +393,24 @@ local function buildUi()
 		spawnFn(Loader.load, true)
 	end))
 
-	local version = label({
-		Text = "", TextSize = 12, TextColor3 = THEME.dim, TextXAlignment = Enum.TextXAlignment.Right,
-		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 138),
-		Size = UDim2.fromOffset(180, 28),
+	local idsText = string.format("Place %s  |  Game %s", tostring(game.PlaceId), tostring(game.GameId))
+	local ids = new("TextButton", {
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 228),
+		Size = UDim2.fromOffset(250, 30), BackgroundTransparency = 1, AutoButtonColor = false,
+		Text = idsText, Font = Enum.Font.BuilderSans, TextSize = 12, TextColor3 = THEME.dim,
+		TextXAlignment = Enum.TextXAlignment.Right,
 	}, root)
+	table.insert(connections, ids.MouseEnter:Connect(function() tween(ids, FAST, { TextColor3 = THEME.sub }) end))
+	table.insert(connections, ids.MouseLeave:Connect(function() tween(ids, FAST, { TextColor3 = THEME.dim }) end))
+	table.insert(connections, ids.MouseButton1Click:Connect(function()
+		if type(setclipboard) ~= "function" then return end
+		pcall(setclipboard, idsText)
+		ids.Text = "Copied"
+		spawnFn(function()
+			waitFn(1.2)
+			if ids.Parent then ids.Text = idsText end
+		end)
+	end))
 
 	-- Drag.
 	local dragging, dragStart, startPos
@@ -322,100 +436,100 @@ local function buildUi()
 		end
 	end))
 
-	tween(root, TweenInfo.new(0.26, Enum.EasingStyle.Quad), { GroupTransparency = 0 })
+	-- Spinner for the active step.
+	table.insert(connections, runService.Heartbeat:Connect(function(dt)
+		if spinner and spinner.Parent then spinner.Rotation = (spinner.Rotation + 300 * dt) % 360 end
+	end))
 
 	ui = {
-		gui = gui, root = root, dot = dot, status = status, fill = fill,
-		version = version, reload = reload,
+		gui = gui, root = root, fill = fill, reload = reload, subtitle = subtitle,
+		badge = badge, badgeText = badgeText,
 	}
-end
 
----Update the status line, dot colour and progress bar.
----@param text string
----@param color Color3
----@param progress number
-local function setStatus(text, color, progress)
-	if not ui.gui then return end
-	ui.status.Text = text
-	tween(ui.dot, FAST, { BackgroundColor3 = color })
-	tween(ui.fill, EASE, { Size = UDim2.fromScale(math.clamp(progress, 0, 1), 1) })
+	for index = 1, #STEPS do paintRow(index, "idle") end
+
+	root.Position = UDim2.new(0.5, 0, 0.5, 10)
+	tween(root, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {
+		GroupTransparency = 0, Position = UDim2.fromScale(0.5, 0.5),
+	})
 end
 
 -- Core.
 
----Compile and run a fetched script body.
----@return boolean, string?
-local function execute(body)
+---Fetch and run the script for this place.
+---@param manual boolean?
+function Loader.load(manual)
+	if busy or not running or not ui.gui then return end
+	busy = true
+	pendingUpdate = false
+	ui.reload.Text = "Reload"
+	for index = 1, #STEPS do paintRow(index, "idle", "") end
+
+	paintRow(1, "active", "")
+	activeEntry = resolveEntry()
+	if not activeEntry then
+		paintRow(1, "error", "Not supported")
+		busy = false
+		return
+	end
+	paintRow(1, "done", activeEntry.name)
+
+	paintRow(2, "active", "")
+	local body, fetchError = fetch(activeEntry.urlRaw)
+	if not body then
+		paintRow(2, "error", tostring(fetchError))
+		busy = false
+		return
+	end
+	paintRow(2, "done", string.format("%.1f KB", #body / 1024))
+
+	paintRow(3, "active", "")
 	local fn, compileError = loadstring(body)
 	if type(fn) ~= "function" then
-		return false, "Compile error: " .. tostring(compileError)
+		warn("[DuckyHub] " .. tostring(compileError))
+		paintRow(3, "error", "Syntax error (see console)")
+		busy = false
+		return
 	end
+	paintRow(3, "done", "")
 
+	paintRow(4, "active", "")
 	try(function() if getgenv and getgenv().MONOUI_CLEANUP then getgenv().MONOUI_CLEANUP() end end)
-
 	spawnFn(function()
 		local ok, runtimeError = xpcall(fn, debug.traceback)
 		if not ok then
 			warn("[DuckyHub] " .. tostring(runtimeError))
-			setStatus("Runtime error (see console)", THEME.bad, 1)
+			paintRow(4, "error", "Runtime error (see console)")
 		end
 	end)
-	return true
-end
-
----Fetch and run the script for this place.
----@param manual boolean?
-function Loader.load(manual)
-	if busy or not running then return end
-	if not entry then
-		setStatus("Game not supported", THEME.bad, 1)
-		return
-	end
-
-	busy = true
-	setStatus("Fetching script...", THEME.sub, 0.35)
-	local body, fetchError = fetch(entry.urlRaw)
-	if not body then
-		busy = false
-		setStatus("Fetch failed: " .. tostring(fetchError), THEME.bad, 0.35)
-		return
-	end
-
-	setStatus("Compiling...", THEME.sub, 0.7)
-	local ok, executeError = execute(body)
-	busy = false
-	if not ok then
-		setStatus(executeError, THEME.bad, 0.7)
-		return
-	end
+	paintRow(4, "done", manual and "Reloaded" or "Running")
 
 	lastHash = fingerprint(body)
-	pendingBody = nil
-	ui.version.Text = entry.name .. "  " .. lastHash:sub(-6)
-	setStatus(manual and "Reloaded" or "Loaded", THEME.ok, 1)
+	ui.badgeText.Text = lastHash:sub(-6):upper()
+	ui.badge.Visible = true
+	busy = false
 end
 
 ---Poll for script updates with exponential backoff on failures.
 local function pollLoop()
 	local failures = 0
 	while running do
-		local delay = math.min(POLL_INTERVAL * (2 ^ failures), MAX_BACKOFF)
-		waitFn(delay)
+		waitFn(math.min(POLL_INTERVAL * (2 ^ failures), MAX_BACKOFF))
 		if not running then break end
-		if not entry or busy or not lastHash then continue end
+		if not activeEntry or busy or not lastHash or pendingUpdate then continue end
 
-		local body = fetch(entry.urlRaw)
+		local body = fetch(activeEntry.urlRaw)
 		if not body then
 			failures = failures + 1
 			continue
 		end
 		failures = 0
 
-		local hash = fingerprint(body)
-		if hash ~= lastHash and not pendingBody then
-			pendingBody = body
+		if fingerprint(body) ~= lastHash then
+			pendingUpdate = true
 			ui.reload.Text = "Update"
-			setStatus("Update available - press Update", THEME.ok, 1)
+			ui.badgeText.Text = "UPDATE"
+			ui.badgeText.TextColor3 = THEME.ok
 		end
 	end
 end
@@ -423,6 +537,7 @@ end
 ---Tear everything down.
 function Loader.stop()
 	running = false
+	spinner = nil
 	for _, connection in ipairs(connections) do try(connection.Disconnect, connection) end
 	table.clear(connections)
 	if ui.gui then try(ui.gui.Destroy, ui.gui) end
@@ -440,6 +555,10 @@ end
 
 xpcall(function()
 	buildUi()
+	spawnFn(function()
+		local name = resolveGameName()
+		if ui.subtitle then ui.subtitle.Text = name end
+	end)
 	spawnFn(Loader.load)
 	spawnFn(pollLoop)
 end, onInitializeError)
