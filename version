@@ -1,13 +1,51 @@
--- Change this to retire every older loader.
-local LATEST_VERSION = "8ADB2C"
+-- Edit CONFIG to control every loader in the wild.
+local CONFIG = {
+	latest = "8ADB2C",
+	-- Older builds that may still run, but get told to update.
+	supported = {},
+	-- Builds blocked outright, with the reason shown to the user.
+	blocked = {},
+	-- Set to true to stop every loader.
+	maintenance = false,
+	maintenanceMessage = "Under maintenance",
+	-- Games switched off by the name used in the loader's REGISTRY, e.g. FUT = "Updating".
+	disabledGames = {},
+	-- Copied to the user's clipboard when their loader is rejected. Leave empty to skip.
+	downloadText = "",
+}
+
+---@param allowed boolean
+---@param status string
+---@param message string
+local function result(allowed, status, message)
+	return {
+		allowed = allowed,
+		status = status,
+		message = message,
+		latest = CONFIG.latest,
+		downloadText = CONFIG.downloadText,
+		disabledGames = CONFIG.disabledGames,
+	}
+end
 
 ---@param version string
----@return boolean allowed
----@return string message
+---@return table
 return function(version)
-	if version ~= LATEST_VERSION then
-		return false, "Outdated loader"
+	if CONFIG.maintenance then
+		return result(false, "maintenance", CONFIG.maintenanceMessage)
 	end
 
-	return true, version .. " latest"
+	if CONFIG.blocked[version] then
+		return result(false, "blocked", CONFIG.blocked[version])
+	end
+
+	if version == CONFIG.latest then
+		return result(true, "latest", version .. " latest")
+	end
+
+	if table.find(CONFIG.supported, version) then
+		return result(true, "update", "Update available")
+	end
+
+	return result(false, "outdated", "Outdated loader")
 end
